@@ -1,0 +1,48 @@
+port: 7880
+bind_addresses:
+  - ""
+
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 51000
+  use_external_ip: true
+
+keys:
+  prodkey: CHANGE_ME
+
+redis:
+  address: REDIS_HOST:6379
+
+turn:
+  enabled: false
+
+webhook:
+  api_key: CHANGE_ME
+  urls:
+    - https://api.oneway.app/api/livekit/webhook
+
+ingress:
+  rtmp_base_url: rtmp://rtc.oneway.app/live
+
+room:
+  auto_create: true
+
+audio:
+  active_level: 35
+  min_percentile: 40
+  update_interval: 400
+
+logging:
+  level: info
+
+node_selector:
+  kind: any
+
+s3:
+  access_key: CHANGE_ME
+  secret: CHANGE_ME
+  region: us-east-1
+  bucket: oneway-recordings
+  endpoint: ""
+  force_path_style: false

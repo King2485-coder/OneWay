@@ -1,0 +1,389 @@
+// OneWay Prisma schema.
+//
+// Local dev default: SQLite (fast, zero-config, persistent on disk).
+// Production: switch the datasource provider to "postgresql" and set
+// DATABASE_URL to a real Postgres connection string, then run:
+//   npx prisma migrate deploy
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String?   @unique
+  /// bcrypt hash. Nullable while we phase out dev tokens; required for
+  /// real auth flows once `JWT_AUTH_REQUIRED=true`.
+  passwordHash  String?
+  displayName   String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  storefronts   Storefront[]
+  conversations ConversationParticipant[]
+  callsAsCaller Call[]    @relation("CallerCalls")
+  callsAsCallee Call[]    @relation("CalleeCalls")
+  callHistory   CallHistoryEntry[]
+  pushTokens    PushToken[]
+  voicemailsIn  Voicemail[] @relation("VoicemailCallee")
+  voicemailsOut Voicemail[] @relation("VoicemailCaller")
+  orders        Order[]
+}
+
+// ---------- Calling subsystem (replaces in-memory CallRegistry source-of-truth)
+
+model Call {
+  id          String    @id @default(uuid())
+  callerId    String
+  calleeId    String
+  /// "ringing" | "accepted" | "ended" | "declined" | "missed" | "failed"
+  status      String
+  roomName    String
+  hasVideo    Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  acceptedAt  DateTime?
+  endedAt     DateTime?
+
+  caller      User      @relation("CallerCalls", fields: [callerId], references: [id], onDelete: Cascade)
+  callee      User      @relation("CalleeCalls", fields: [calleeId], references: [id], onDelete: Cascade)
+  history     CallHistoryEntry[]
+  voicemails  Voicemail[]
+
+  @@index([callerId, createdAt])
+  @@index([calleeId, createdAt])
+  @@index([roomName])
+}
+
+model CallHistoryEntry {
+  id              String   @id @default(uuid())
+  callId          String
+  userId          String
+  /// "incoming" | "outgoing"
+  direction       String
+  /// "completed" | "missed" | "declined" | "failed"
+  status          String
+  durationSeconds Int      @default(0)
+  hasVideo        Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  voicemailId     String?
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  call      Call      @relation(fields: [callId], references: [id], onDelete: Cascade)
+  voicemail Voicemail? @relation(fields: [voicemailId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([callId])
+}
+
+model Voicemail {
+  id              String   @id @default(uuid())
+  callId          String
+  callerId        String
+  calleeId        String
+  /// Object storage key (S3/R2). Reads go through a signed URL; the URL
+  /// itself is never persisted — we mint per-request.
+  storageKey      String
+  durationSeconds Int      @default(0)
+  mimeType        String
+  bytes           Int      @default(0)
+  listened        Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  call    Call @relation(fields: [callId], references: [id], onDelete: Cascade)
+  caller  User @relation("VoicemailCaller", fields: [callerId], references: [id], onDelete: Cascade)
+  callee  User @relation("VoicemailCallee", fields: [calleeId], references: [id], onDelete: Cascade)
+  history CallHistoryEntry[]
+
+  @@index([calleeId, createdAt])
+}
+
+model PushToken {
+  id           String   @id @default(uuid())
+  userId       String
+  voipToken    String   @unique
+  /// "sandbox" | "production"
+  environment  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ---------- Existing models (untouched) -------------------------------------
+
+model Storefront {
+  id          String   @id @default(uuid())
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name        String
+  slug        String   @unique
+  description String
+  category    String
+  tagline     String?
+  published   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  products    StorefrontProduct[]
+  collections StorefrontCollection[]
+  theme       StorefrontTheme?
+  assets      StorefrontAsset[]
+  generated   StorefrontGeneratedContent[]
+  orders      Order[]
+}
+
+model StorefrontProduct {
+  id             String     @id @default(uuid())
+  storefrontId   String
+  storefront     Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  name           String
+  description    String
+  price          String
+  imageUrl       String?
+  isSubscription Boolean    @default(false)
+  featured       Boolean    @default(false)
+  published      Boolean    @default(true)
+  stripePriceId  String?
+  orderItems     OrderItem[]
+  ads            Ad[]
+  avatarContent  AIAvatarContent[]
+  scheduledLives ScheduledLive[]
+}
+
+model Order {
+  id               String      @id @default(uuid())
+  userId           String
+  storeId          String?
+  total            Float
+  status           String
+  stripeCheckoutId String?     @unique
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store  Storefront? @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  items  OrderItem[]
+
+  @@index([userId, createdAt])
+  @@index([storeId, createdAt])
+}
+
+model OrderItem {
+  id        String            @id @default(uuid())
+  orderId   String
+  productId String?
+  name      String
+  quantity  Int               @default(1)
+  unitPrice Float
+  imageUrl  String?
+
+  order   Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product StorefrontProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model Recording {
+  id        String   @id @default(uuid())
+  roomName  String
+  fileUrl   String
+  egressId  String?  @unique
+  status    String   @default("recording")
+  createdAt DateTime @default(now())
+}
+
+model AIAvatar {
+  id           String            @id @default(uuid())
+  name         String
+  personality  String
+  voiceType    String
+  niche        String
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  content      AIAvatarContent[]
+  scheduled    ScheduledLive[]
+}
+
+model AIAvatarContent {
+  id          String            @id @default(uuid())
+  avatarId    String
+  productId   String?
+  hook        String
+  script      String
+  caption     String
+  videoUrl    String?
+  status      String            @default("draft")
+  postedAt    DateTime?
+  createdAt   DateTime          @default(now())
+
+  avatar      AIAvatar          @relation(fields: [avatarId], references: [id], onDelete: Cascade)
+  product     StorefrontProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([avatarId, createdAt])
+  @@index([productId, createdAt])
+}
+
+model ScheduledLive {
+  id              String             @id @default(uuid())
+  avatarId        String
+  productId       String?
+  title           String
+  scheduledFor    DateTime
+  status          String             @default("scheduled")
+  viewerCount     Int                @default(0)
+  createdAt       DateTime           @default(now())
+
+  avatar          AIAvatar           @relation(fields: [avatarId], references: [id], onDelete: Cascade)
+  product         StorefrontProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([scheduledFor])
+  @@index([avatarId, scheduledFor])
+}
+
+model Ad {
+  id            String            @id @default(uuid())
+  productId     String
+  budget        Float
+  clicks        Int               @default(0)
+  impressions   Int               @default(0)
+  featured      Boolean           @default(false)
+  active        Boolean           @default(true)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  product       StorefrontProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, createdAt])
+  @@index([active, featured])
+}
+
+model StorefrontCollection {
+  id           String     @id @default(uuid())
+  storefrontId String
+  storefront   Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  title        String
+}
+
+model StorefrontTheme {
+  id           String     @id @default(uuid())
+  storefrontId String     @unique
+  storefront   Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  primaryHex   String
+  accentHex    String
+  background   String
+  font         String
+}
+
+model StorefrontAsset {
+  id           String     @id @default(uuid())
+  storefrontId String
+  storefront   Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  url          String
+  kind         String
+}
+
+model StorefrontGeneratedContent {
+  id           String     @id @default(uuid())
+  storefrontId String
+  storefront   Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  prompt       String
+  // Postgres has a Json type, but we keep this `String` for SQLite parity.
+  response     String
+  createdAt    DateTime   @default(now())
+}
+
+model Conversation {
+  id           String                    @id @default(uuid())
+  type         String
+  title        String?
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+  participants ConversationParticipant[]
+  messages     Message[]
+}
+
+model ConversationParticipant {
+  userId         String
+  conversationId String
+  role           String        @default("member")
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@id([userId, conversationId])
+}
+
+model Message {
+  id             String              @id @default(uuid())
+  conversationId String
+  senderId       String
+  ciphertext     String
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  conversation   Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  attachments    MessageAttachment[]
+  receipts       MessageReceipt[]
+}
+
+model MessageAttachment {
+  id        String   @id @default(uuid())
+  messageId String
+  url       String
+  mimeType  String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+}
+
+model MessageReceipt {
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String
+  status    String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+}
+
+model Community {
+  id          String           @id @default(uuid())
+  ownerId     String
+  name        String
+  description String
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  members     CommunityMember[]
+  groups      CommunityGroup[]
+}
+
+model CommunityMember {
+  id          String    @id @default(uuid())
+  communityId String
+  userId      String
+  role        String
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+}
+
+model CommunityGroup {
+  id          String    @id @default(uuid())
+  communityId String
+  title       String
+  description String?
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+}
+
+/// Legacy in-memory call session model. Kept for backward-compat with any
+/// scripts that reference it; superseded by the new `Call` table.
+model CallSession {
+  id        String   @id @default(uuid())
+  callerId  String
+  calleeId  String
+  type      String
+  state     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

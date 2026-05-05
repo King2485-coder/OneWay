@@ -1,0 +1,163 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String       @id @default(uuid())
+  email       String       @unique
+  displayName String
+  storefronts Storefront[]
+  conversations ConversationParticipant[]
+}
+
+model Storefront {
+  id          String   @id @default(uuid())
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name        String
+  slug        String   @unique
+  description String
+  category    String
+  tagline     String?
+  published   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  products    StorefrontProduct[]
+  collections StorefrontCollection[]
+  theme       StorefrontTheme?
+  assets      StorefrontAsset[]
+  generated   StorefrontGeneratedContent[]
+}
+
+model StorefrontProduct {
+  id            String      @id @default(uuid())
+  storefrontId  String
+  storefront    Storefront  @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  name          String
+  description   String
+  price         String
+  isSubscription Boolean    @default(false)
+}
+
+model StorefrontCollection {
+  id           String     @id @default(uuid())
+  storefrontId String
+  storefront   Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  title        String
+}
+
+model StorefrontTheme {
+  id           String     @id @default(uuid())
+  storefrontId String     @unique
+  storefront   Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  primaryHex   String
+  accentHex    String
+  background   String
+  font         String
+}
+
+model StorefrontAsset {
+  id           String     @id @default(uuid())
+  storefrontId String
+  storefront   Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  url          String
+  kind         String
+}
+
+model StorefrontGeneratedContent {
+  id           String     @id @default(uuid())
+  storefrontId String
+  storefront   Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  prompt       String
+  response     Json
+  createdAt    DateTime   @default(now())
+}
+
+model Conversation {
+  id           String                       @id @default(uuid())
+  type         String
+  title        String?
+  createdAt    DateTime                     @default(now())
+  updatedAt    DateTime                     @updatedAt
+  participants ConversationParticipant[]
+  messages     Message[]
+}
+
+model ConversationParticipant {
+  userId        String
+  conversationId String
+  role          String   @default("member")
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation  Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  @@id([userId, conversationId])
+}
+
+model Message {
+  id             String      @id @default(uuid())
+  conversationId String
+  senderId       String
+  ciphertext     String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  attachments    MessageAttachment[]
+  receipts       MessageReceipt[]
+}
+
+model MessageAttachment {
+  id         String   @id @default(uuid())
+  messageId  String
+  url        String
+  mimeType   String
+  message    Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+}
+
+model MessageReceipt {
+  id         String   @id @default(uuid())
+  messageId  String
+  userId     String
+  status     String
+  message    Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+}
+
+model Community {
+  id          String    @id @default(uuid())
+  ownerId     String
+  name        String
+  description String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  members     CommunityMember[]
+  groups      CommunityGroup[]
+}
+
+model CommunityMember {
+  id           String    @id @default(uuid())
+  communityId  String
+  userId       String
+  role         String
+  community    Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+}
+
+model CommunityGroup {
+  id           String    @id @default(uuid())
+  communityId  String
+  title        String
+  description  String?
+  community    Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+}
+
+model CallSession {
+  id           String   @id @default(uuid())
+  callerId     String
+  calleeId     String
+  type         String
+  state        String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

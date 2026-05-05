@@ -1,0 +1,54 @@
+# macOS
+.DS_Store
+
+# Xcode / build artifacts
+DerivedData/
+.derivedData/
+.derivedData_build/
+.derivedData_build_nosign/
+.derivedData_build_ios/
+.derivedData_build_sim/
+.derivedData_xcodebuild/
+**/.derivedData/
+**/.derivedData_build/
+**/.derivedData_build_nosign/
+**/.derivedData_build_ios/
+**/.derivedData_build_sim/
+**/DerivedData/
+*.xcuserstate
+
+# SwiftPM / package caches
+.build/
+
+# Node / web
+node_modules/
+node_modules 2/
+dist/
+web-build/
+.expo/
+package-lock 2.json
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+server/.env
+**/.env
+**/,env
+**/.ev
+**/.env 2.example
+
+# Archives / local exports
+*.zip
+tmp/
+OneWay/OneWay-project/
+Reference/
+OneWay/Reference/
+
+# Local runtime / generated files
+uploads/
+*.db
+
+# IDE
+.idea/
+.vscode/

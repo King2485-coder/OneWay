@@ -1,0 +1,123 @@
+# OneWay backend — production compose stack.
+#
+# Brings up:
+#   - api       : the Node server (built from ./Dockerfile)
+#   - postgres  : Postgres 16
+#   - redis     : Redis 7 (alpine)
+#   - nginx     : reverse proxy with WebSocket upgrade + TLS termination
+#
+# coturn is NOT in this stack — it sits on its own VPS for media-bandwidth
+# isolation. See infra/turn/docker-compose.yml for that one.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-oneway}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-oneway}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-oneway}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER:-oneway}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-oneway}
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:?must be set}
+      JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-604800}
+      JWT_AUTH_REQUIRED: ${JWT_AUTH_REQUIRED:-true}
+      TRUST_PROXY: "1"
+
+      # LiveKit
+      LIVEKIT_URL: ${LIVEKIT_URL}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+
+      # TURN
+      TURN_HOSTNAME: ${TURN_HOSTNAME}
+      TURN_SHARED_SECRET: ${TURN_SHARED_SECRET}
+      TURN_TTL_SECONDS: ${TURN_TTL_SECONDS:-43200}
+
+      # APNs
+      APNS_BUNDLE_ID: ${APNS_BUNDLE_ID}
+      APNS_KEY_ID: ${APNS_KEY_ID}
+      APNS_TEAM_ID: ${APNS_TEAM_ID}
+      APNS_KEY_PATH: ${APNS_KEY_PATH:-/etc/oneway/apns.p8}
+      APNS_ENVIRONMENT: ${APNS_ENVIRONMENT:-sandbox}
+
+      # Storage
+      S3_BUCKET: ${S3_BUCKET}
+      S3_REGION: ${S3_REGION}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE}
+      S3_PUBLIC_URL_BASE: ${S3_PUBLIC_URL_BASE}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      STORAGE_HMAC_SECRET: ${STORAGE_HMAC_SECRET}
+
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    volumes:
+      # Mount your APNs .p8 here so APNS_KEY_PATH is reachable inside the container.
+      - ./secrets:/etc/oneway:ro
+      # Persistent voicemail storage when running with local object storage.
+      # Skip when using S3/R2.
+      - api-uploads:/app/uploads
+      - api-data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    expose:
+      - "3000"
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      api: { condition: service_healthy }
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/oneway.conf:/etc/nginx/conf.d/default.conf:ro
+      # certbot-managed certs:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  pg-data:
+  redis-data:
+  api-uploads:
+  api-data:

@@ -1,0 +1,48 @@
+# OneWay TURN/STUN — production coturn deployment.
+#
+# host networking is used on purpose. coturn allocates ephemeral UDP ports for
+# each relay (49160–49200 below) and Docker's userland NAT cannot expose a
+# range like that performantly. With host networking the container binds
+# directly to the VPS NIC, which is what coturn needs to relay media.
+#
+# Cert renewal: certbot writes into ./certs on the host, and coturn rereads
+# the files on SIGHUP. See the renewal hook in deploy.sh.
+
+services:
+  coturn:
+    image: coturn/coturn:4.6
+    container_name: oneway-coturn
+    restart: unless-stopped
+    network_mode: host
+    # Drop every Linux capability we don't need. coturn does need NET_BIND_SERVICE
+    # to bind 3478/5349 as a non-root user inside the container.
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/tmp
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+      - ./certs:/etc/coturn/certs:ro
+      - ./logs:/var/log/coturn
+    env_file:
+      - ./.env
+    # The config file is the source of truth; only pass the path here.
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+    healthcheck:
+      # Bind-test 3478 from inside the container. If coturn dies, restart.
+      test: ["CMD-SHELL", "ss -lun | grep -q ':3478' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
