@@ -26,7 +26,7 @@ This is the first-pass rollout shape for expanding OneWay across:
 
 ## Routing
 
-- App clients talk to `https://api.oneway.app`
+- App clients talk to `https://api.oneway.is`
 - Edge and backend routing decide the best region
 - Use latency routing and health checks for failover
 

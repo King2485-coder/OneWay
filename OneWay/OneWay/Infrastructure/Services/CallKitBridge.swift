@@ -4,6 +4,9 @@ import Foundation
 import CallKit
 import AVFoundation
 import UIKit
+#if canImport(LiveKit)
+import LiveKit
+#endif
 
 /// Thin wrapper around CallKit. Owns the app's single `CXProvider` and exposes
 /// helpers for outbound and inbound announcements. Doesn't touch media — that's
@@ -104,12 +107,26 @@ extension CallKitBridge: CXProviderDelegate {
     }
 
     nonisolated func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
-        // Hand-off to the transport: this is when WebRTC should start its
-        // peer connection or unmute its captured audio.
+        #if canImport(LiveKit)
+        do {
+            try audioSession.setCategory(
+                .playAndRecord,
+                mode: .voiceChat,
+                options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP]
+            )
+            try audioSession.setActive(true)
+            try AudioManager.shared.setEngineAvailability(.default)
+            print("🎧 CallKitBridge didActivate — LiveKit audio engine enabled")
+        } catch {
+            print("❌ CallKitBridge audio activation error:", error)
+        }
+        #endif
     }
 
     nonisolated func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
-        // Transport should tear down.
+        #if canImport(LiveKit)
+        print("ℹ️ CallKitBridge didDeactivate — deferring engine shutdown to call teardown")
+        #endif
     }
 }
 #endif

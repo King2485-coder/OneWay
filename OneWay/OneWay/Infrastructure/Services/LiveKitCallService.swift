@@ -26,6 +26,7 @@ final class LiveKitCallService: CallService {
     /// Pending credentials per call. Populated when an `accepted` event
     /// arrives for a call we initiated, before `transport.connect` runs.
     private var pendingCredentials: [UUID: CallCredentials] = [:]
+    private let bypassCallKitForAudioDebug = true
 
     init(transport: CallTransport,
          signaling: CallSignalingClient,
@@ -41,11 +42,13 @@ final class LiveKitCallService: CallService {
     // MARK: - CallService
 
     func startCall(chatID: UUID, type: CallType) async throws -> CallSession {
+        print("📞 LiveKitCallService startCall")
         let callID = UUID()
         var session = CallSession(
             id: callID,
             chatID: chatID,
             type: type,
+            networkType: .oneWayNative,
             state: .ringing,
             startedAt: Date(),
             participants: [
@@ -65,9 +68,13 @@ final class LiveKitCallService: CallService {
         // Tell the system we're starting an outbound call before any media work
         // — this is what gets the call into Recents and keeps audio alive in
         // the background.
-        try await bridge.reportOutboundCallStarted(uuid: callID,
-                                                   handle: chatID.uuidString,
-                                                   hasVideo: type == .video)
+        if bypassCallKitForAudioDebug {
+            print("🧪 Bypassing CallKit start action for audio debug")
+        } else {
+            try await bridge.reportOutboundCallStarted(uuid: callID,
+                                                       handle: chatID.uuidString,
+                                                       hasVideo: type == .video)
+        }
 
         // Ask the backend for a room + token, then connect the media stack.
         let credentials = try await signaling.invite(chatID: chatID,
@@ -82,7 +89,9 @@ final class LiveKitCallService: CallService {
                                     iceServers: credentials.iceServers,
                                     video: type == .video)
 
-        bridge.reportConnected(uuid: callID)
+        if !bypassCallKitForAudioDebug {
+            bridge.reportConnected(uuid: callID)
+        }
         session.state = .connected
         sessions[callID] = session
         publish(session)
@@ -90,6 +99,7 @@ final class LiveKitCallService: CallService {
     }
 
     func answerCall(sessionID: UUID) async throws {
+        print("📞 LiveKitCallService answerCall")
         guard var session = sessions[sessionID] else { return }
         session.state = .connecting
         sessions[sessionID] = session
@@ -100,7 +110,9 @@ final class LiveKitCallService: CallService {
                                     token: credentials.token,
                                     iceServers: credentials.iceServers,
                                     video: session.type == .video)
-        bridge.reportConnected(uuid: sessionID)
+        if !bypassCallKitForAudioDebug {
+            bridge.reportConnected(uuid: sessionID)
+        }
         session.state = .connected
         sessions[sessionID] = session
         publish(session)
@@ -155,6 +167,7 @@ final class LiveKitCallService: CallService {
             id: callID,
             chatID: chatID,
             type: hasVideo ? .video : .voice,
+            networkType: .oneWayNative,
             state: .ringing,
             startedAt: Date(),
             participants: [],
@@ -232,11 +245,17 @@ final class LiveKitCallService: CallService {
     /// system ring, but DO NOT auto-join LiveKit. The user must accept first;
     /// `bridge.onAnswer` will run `answerCall` which fetches credentials.
     private func handleIncomingRing(_ ring: SignalingEvent.IncomingRing) async {
+        let currentUserId = AppEnvironment.shared.currentUserID.lowercased()
+        if ring.callerID.lowercased() == currentUserId {
+            print("📞 Ignoring self ring")
+            return
+        }
         let chatID = UUID(uuidString: ring.callerID) ?? UUID()
         let session = CallSession(
             id: ring.callID,
             chatID: chatID,
             type: ring.hasVideo ? .video : .voice,
+            networkType: .oneWayNative,
             state: .ringing,
             startedAt: Date(),
             participants: [],
@@ -278,7 +297,9 @@ final class LiveKitCallService: CallService {
                                         token: credentials.token,
                                         iceServers: credentials.iceServers,
                                         video: session.type == .video)
+            if !bypassCallKitForAudioDebug {
             bridge.reportConnected(uuid: callID)
+        }
             mutate(callID) { $0.state = .connected }
         } catch {
             finish(callID, state: .failed)

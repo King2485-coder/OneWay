@@ -24,13 +24,15 @@ final class LocalBusinessService: BusinessService, BusinessSearchService {
         return store
     }
 
-    func save(storefront: Storefront) async throws {
+    @discardableResult
+    func save(storefront: Storefront) async throws -> Storefront {
         if let idx = storefronts.firstIndex(where: { $0.id == storefront.id }) {
             storefronts[idx] = storefront
         } else {
             storefronts.append(storefront)
         }
         persist()
+        return storefront
     }
 
     func publish(storefrontID: UUID, isPublished: Bool) async throws {

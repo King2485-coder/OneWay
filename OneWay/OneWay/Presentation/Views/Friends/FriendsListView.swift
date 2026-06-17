@@ -182,30 +182,6 @@ struct FriendsListView: View {
     }
 
     private func startCall(with friend: FriendConnection, type: CallType) async {
-        if type == .video {
-            let callUUID = UUID()
-            let roomName = "group-\(friend.id.uuidString.lowercased())-\(environment.currentUserID)"
-
-            CallKitManager.shared.startOutgoingCall(
-                uuid: callUUID,
-                handle: friend.displayName
-            )
-
-            do {
-                try await LiveKitManager.shared.startCall(
-                    roomName: roomName,
-                    userId: environment.currentUserID,
-                    calleeUserId: friend.id.uuidString,
-                    callerName: environment.currentUserID,
-                    callUUID: callUUID
-                )
-            } catch {
-                viewModel.errorMessage = error.localizedDescription
-                CallKitManager.shared.endCall(uuid: callUUID)
-            }
-            return
-        }
-
         do {
             let session = try await environment.callService.startCall(chatID: friend.id, type: type)
             FriendsHaptics.notify(.success)

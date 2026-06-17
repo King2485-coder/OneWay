@@ -20,7 +20,7 @@ turn:
 webhook:
   api_key: CHANGE_ME
   urls:
-    - https://api.oneway.app/api/livekit/webhook
+    - https://api.oneway.is/api/livekit/webhook
 
 ingress:
   rtmp_base_url: rtmp://rtc.oneway.app/live

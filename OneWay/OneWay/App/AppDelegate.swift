@@ -22,6 +22,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Initialize environment safely
         let env = AppEnvironment.shared
 
+        print("🌐 BASE URL (raw configured):", APIConfig.rawConfiguredBaseURL)
         print("🚀 App started with baseURL:", env.baseURL)
         print("👤 Current user:", env.currentUserID)
         Task { @MainActor in

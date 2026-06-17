@@ -259,10 +259,23 @@ struct CallParticipant: Identifiable, Equatable {
     let isVideoEnabled: Bool
 }
 
+enum CallNetworkType: String, Equatable {
+    case oneWayNative
+    case pstnBridge
+
+    var statusLabel: String {
+        switch self {
+        case .oneWayNative: return "Using OneWay Signal"
+        case .pstnBridge: return "Using External Network"
+        }
+    }
+}
+
 struct CallSession: Identifiable, Equatable {
     let id: UUID
     let chatID: UUID
     let type: CallType
+    var networkType: CallNetworkType
     var state: CallConnectionState
     var startedAt: Date
     var participants: [CallParticipant]
@@ -382,7 +395,8 @@ extension CallService {
 protocol BusinessService {
     func listStorefronts() async throws -> [Storefront]
     func createStorefront(name: String, category: String, tagline: String?) async throws -> Storefront
-    func save(storefront: Storefront) async throws
+    @discardableResult
+    func save(storefront: Storefront) async throws -> Storefront
     func publish(storefrontID: UUID, isPublished: Bool) async throws
     func delete(storefrontID: UUID) async throws
 }

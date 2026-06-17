@@ -9,6 +9,7 @@ final class StubCallService: CallService {
             id: UUID(),
             chatID: chatID,
             type: type,
+            networkType: .oneWayNative,
             state: .ringing,
             startedAt: Date(),
             participants: [CallParticipant(id: UUID(), displayName: "You", isMuted: false, isVideoEnabled: type == .video)],

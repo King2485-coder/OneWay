@@ -44,7 +44,8 @@ final class NetworkBusinessService: BusinessService, BusinessSearchService {
         return mapStorefront(apiStore)
     }
 
-    func save(storefront: Storefront) async throws {
+    @discardableResult
+    func save(storefront: Storefront) async throws -> Storefront {
         let url = baseURL
             .appendingPathComponent("api")
             .appendingPathComponent("storefronts")
@@ -52,14 +53,25 @@ final class NetworkBusinessService: BusinessService, BusinessSearchService {
         var req = URLRequest(url: url)
         req.httpMethod = "PATCH"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let payloadHandle = normalizedHandle(storefront.slug)
         let body: [String: Any?] = [
             "name": storefront.business.name,
             "description": storefront.business.description,
             "category": storefront.business.category,
-            "tagline": storefront.business.tagline
+            "tagline": storefront.business.tagline,
+            "requestedHandle": payloadHandle
         ]
+#if DEBUG
+        print("[StorefrontSave] currentHandleText=nil draftHandle=\(storefront.slug) payloadHandle=\(payloadHandle) backendHandle=\(storefront.slug) selectedStoreName=\(storefront.business.name) sourceOfTruth=storefront.slug")
+#endif
         req.httpBody = try JSONSerialization.data(withJSONObject: body.compactMapValues { $0 })
-        _ = try await perform(req)
+        let (data, _) = try await perform(req)
+        let apiStore = try decoder.decode(APIStorefront.self, from: data)
+        let saved = mapStorefront(apiStore)
+#if DEBUG
+        print("[StorefrontSave] resultHandle=\(saved.slug) preview=https://oneway.is/shop/\(saved.slug)")
+#endif
+        return saved
     }
 
     func publish(storefrontID: UUID, isPublished: Bool) async throws {
@@ -95,6 +107,13 @@ final class NetworkBusinessService: BusinessService, BusinessSearchService {
         ]
         let (data, _) = try await perform(URLRequest(url: comps.url!))
         return try decoder.decode([SearchResult].self, from: data)
+    }
+
+
+    private func normalizedHandle(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber || $0 == "-" }
     }
 
     // MARK: - Networking helpers

@@ -2,7 +2,7 @@
 
 This is the production rollout plan for running OneWay globally with:
 
-- `api.oneway.app` for the Node API and signaling
+- `api.oneway.is` for the Node API and signaling
 - `rtc.oneway.app` for LiveKit
 - `turn.oneway.app` for TURN/TLS relay
 - AWS Route 53 for DNS and health checks
@@ -38,7 +38,7 @@ Media / assets
 Create these public records in Route 53:
 
 ```text
-api.oneway.app   A / AAAA   -> latency alias to regional ALBs
+api.oneway.is   A / AAAA   -> latency alias to regional ALBs
 rtc.oneway.app   A / AAAA   -> latency alias to LiveKit regional NLBs
 turn.oneway.app  A / AAAA   -> latency or geo records to TURN VPS / NLB
 media.oneway.app CNAME      -> CloudFront distribution
@@ -85,7 +85,7 @@ S3_PUBLIC_URL_BASE=https://media.oneway.app
 
 ## Security
 
-- Cloudflare proxy enabled for `api.oneway.app`
+- Cloudflare proxy enabled for `api.oneway.is`
 - AWS security groups limited to required ports only
 - TLS certificates via ACM for ALBs
 - JWT auth enforced in production
@@ -95,9 +95,9 @@ S3_PUBLIC_URL_BASE=https://media.oneway.app
 ## Rollout order
 
 1. Deploy `us-east-1`
-2. Validate iOS production build against `api.oneway.app` and `rtc.oneway.app`
+2. Validate iOS production build against `api.oneway.is` and `rtc.oneway.app`
 3. Deploy `us-west-2`
-4. Turn on latency routing for `api.oneway.app`
+4. Turn on latency routing for `api.oneway.is`
 5. Deploy Europe and APAC
 6. Enable global failover health checks
 
@@ -105,7 +105,7 @@ S3_PUBLIC_URL_BASE=https://media.oneway.app
 
 Run these checks after each region goes live:
 
-1. `curl https://api.oneway.app/health`
+1. `curl https://api.oneway.is/health`
 2. Verify `/api/livekit/token` returns a JWT
 3. Place a call across two devices on different networks
 4. Confirm TURN allocation succeeds on LTE

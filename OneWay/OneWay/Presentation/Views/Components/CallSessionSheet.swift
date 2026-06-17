@@ -143,6 +143,10 @@ struct CallSessionSheet: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.white.opacity(0.78))
 
+                Text(activeSession?.networkType.statusLabel ?? "Using OneWay Signal")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.72))
+
                 if let lastError, !lastError.isEmpty {
                     Text(lastError)
                         .font(.caption)

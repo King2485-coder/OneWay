@@ -58,7 +58,8 @@ final class APIClient {
     private let encoder: JSONEncoder
 
     init(baseURLString: String, session: URLSession = .shared) {
-        guard let url = URL(string: baseURLString) else {
+        let normalizedBaseURLString = APIConfig.normalizedLANURL(baseURLString)
+        guard let url = URL(string: normalizedBaseURLString) else {
             fatalError("Invalid APIConfig.baseURL: \(baseURLString)")
         }
         self.baseURL = url
@@ -161,6 +162,19 @@ final class APIClient {
     }
 
     private func send<Response: Decodable>(_ request: URLRequest) async throws -> Response {
+        do {
+            return try await perform(request)
+        } catch {
+            guard let fallbackRequest = onewayHostFallbackRequest(for: request), shouldRetryOnOnewayHost(after: error) else {
+                throw error
+            }
+
+            logger.warning("Retrying API request on oneway.is after stale API host failure: \(error.localizedDescription, privacy: .public)")
+            return try await perform(fallbackRequest)
+        }
+    }
+
+    private func perform<Response: Decodable>(_ request: URLRequest) async throws -> Response {
         logger.log("\(request.httpMethod ?? "GET", privacy: .public) \(request.url?.absoluteString ?? "", privacy: .public)")
 
         let (data, response) = try await session.data(for: request)
@@ -187,5 +201,33 @@ final class APIClient {
             logger.error("Decoding failed: \(error.localizedDescription, privacy: .public)")
             throw error
         }
+    }
+
+    private func onewayHostFallbackRequest(for request: URLRequest) -> URLRequest? {
+        guard let url = request.url,
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let host = components.host?.lowercased(),
+              host == "api." + "oneway.is" else {
+            return nil
+        }
+
+        components.host = "oneway.is"
+        guard let fallbackURL = components.url else { return nil }
+
+        var fallback = request
+        fallback.url = fallbackURL
+        return fallback
+    }
+
+    private func shouldRetryOnOnewayHost(after error: Error) -> Bool {
+        let nsError = error as NSError
+        guard nsError.domain == NSURLErrorDomain else { return false }
+        return [
+            NSURLErrorTimedOut,
+            NSURLErrorCannotConnectToHost,
+            NSURLErrorCannotFindHost,
+            NSURLErrorNetworkConnectionLost,
+            NSURLErrorNotConnectedToInternet,
+        ].contains(nsError.code)
     }
 }

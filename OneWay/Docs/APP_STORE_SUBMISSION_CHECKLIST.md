@@ -27,7 +27,7 @@
 
 ## Technical validation
 
-- [ ] Production API uses `https://api.oneway.app`
+- [ ] Production API uses `https://api.oneway.is`
 - [ ] Production LiveKit uses `wss://rtc.oneway.app`
 - [ ] TURN hostname uses `turn.oneway.app`
 - [ ] Push Notifications capability enabled in Xcode target
