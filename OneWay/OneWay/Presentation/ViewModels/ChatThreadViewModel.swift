@@ -252,10 +252,14 @@ final class ChatThreadViewModel: ObservableObject {
             return reason
         case .warn:
             return "OneWay Sentinel warning: \(reason) Review the message before continuing."
-        case .requireTrustedDeviceApproval:
-            return "OneWay Sentinel blocked this action pending trusted-device verification. \(reason)"
+        case .requireFaceID, .requirePasskey, .requireTrustedDeviceApproval:
+            return "OneWay Sentinel blocked this action pending identity verification. \(reason)"
         case .quarantine:
             return "OneWay Sentinel quarantined this content. \(reason)"
+        case .rateLimit:
+            return "OneWay Sentinel temporarily slowed this action because it resembles automated abuse. \(reason)"
+        case .temporarilySuspend:
+            return "OneWay Sentinel temporarily suspended this action. \(reason)"
         case .humanReview:
             return "OneWay Sentinel stopped this high-risk action. \(reason)"
         }
