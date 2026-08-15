@@ -21,6 +21,8 @@ import {
 } from "../services/privacy/ConversationPrivacy";
 import type { MessageRealtimeServer } from "../realtime/MessageRealtimeServer";
 import { expireDueMessages } from "../services/MessageExpirationService";
+import { twilioWebhookMiddleware } from "../services/twilio/TwilioSecurity";
+import { recordSMSConsent } from "../services/sms/SMSOptOutStore";
 
 const uuidSchema = z.string().uuid().transform((value) => value.toLowerCase());
 
@@ -67,6 +69,9 @@ const externalSendSchema = z.object({
   mediaUrls: z.array(z.string().url()).max(10).optional(),
   clientMessageId: z.string().uuid().optional(),
   idempotencyKey: z.string().trim().min(8).max(128).optional(),
+  smsConsentConfirmed: z.boolean().optional(),
+  smsConsentSource: z.enum(["recipient_request", "existing_relationship", "account_transaction", "support_request"]).optional(),
+  smsConsentAt: z.string().datetime().optional(),
 }).refine((body) => Boolean(body.toPhoneNumber || body.toEmail || body.target), {
   message: "external_target_required",
 });
@@ -126,17 +131,13 @@ const smsRateLimits = new Map<string, { minuteStart: number; minuteCount: number
 export function messagesRouter(deps: { realtime?: MessageRealtimeServer } = {}): express.Router {
   const router = express.Router();
 
-  router.post("/external/twilio/status", async (req, res) => {
-    if (!verifySMSWebhookAccess(req)) {
-      res.status(403).json({ error: "sms_webhook_forbidden" });
-      return;
-    }
+  router.post("/external/twilio/status", twilioWebhookMiddleware, async (req, res) => {
     logger.info({
       provider: "twilio",
       messageStatus: String(req.body?.MessageStatus ?? ""),
       hasError: Boolean(req.body?.ErrorCode || req.body?.ErrorMessage),
     }, "[sms:twilio] status webhook");
-    await updateExternalMessageStatus({
+    await applyTwilioDeliveryCallback({
       providerMessageId: String(req.body?.MessageSid ?? ""),
       providerStatus: String(req.body?.MessageStatus ?? ""),
       failureReason: String(req.body?.ErrorCode ?? req.body?.ErrorMessage ?? ""),
@@ -144,11 +145,7 @@ export function messagesRouter(deps: { realtime?: MessageRealtimeServer } = {}):
     res.json({ ok: true });
   });
 
-  router.post("/external/twilio/inbound", async (req, res) => {
-    if (!verifySMSWebhookAccess(req)) {
-      res.status(403).type("text/xml").send("<Response></Response>");
-      return;
-    }
+  router.post("/external/twilio/inbound", twilioWebhookMiddleware, async (req, res) => {
 
     const from = normalizePhoneNumber(String(req.body?.From ?? ""));
     const to = normalizePhoneNumber(String(req.body?.To ?? ""));
@@ -270,6 +267,12 @@ export function messagesRouter(deps: { realtime?: MessageRealtimeServer } = {}):
         fromOneWayNumber: parsed.data.fromOneWayNumber,
         mediaUrls: parsed.data.mediaUrls,
         idempotencyKey: parsed.data.idempotencyKey ?? parsed.data.clientMessageId,
+        consent: parsed.data.smsConsentConfirmed === true && parsed.data.smsConsentSource
+          ? {
+            source: parsed.data.smsConsentSource,
+            evidenceAt: parsed.data.smsConsentAt ? new Date(parsed.data.smsConsentAt) : new Date(),
+          }
+          : undefined,
       })
       : await sendExternalEmail({
         userId,
@@ -1035,7 +1038,17 @@ async function sendExternalSMS(input: {
   fromOneWayNumber?: string;
   mediaUrls?: string[];
   idempotencyKey?: string;
+  consent?: { source: string; evidenceAt: Date };
 }): Promise<ExternalSendSuccess | ExternalSendFailure> {
+  if (input.consent) {
+    await recordSMSConsent({
+      phoneNumber: input.phoneNumber,
+      userId: input.userId,
+      granted: true,
+      source: input.consent.source,
+      evidenceAt: input.consent.evidenceAt,
+    });
+  }
   const fromOneWayNumber = await resolveSenderOneWayNumber(input.userId, input.fromOneWayNumber);
   if (input.fromOneWayNumber && !fromOneWayNumber) {
     return {
@@ -1700,7 +1713,9 @@ async function buildSMSPreflight() {
   if (provider !== "stub" && !process.env.SMS_WEBHOOK_BASE_URL?.trim() && !process.env.PSTN_WEBHOOK_BASE_URL?.trim()) {
     warnings.push("Set SMS_WEBHOOK_BASE_URL to receive provider delivery callbacks and inbound SMS replies.");
   }
-  if (provider !== "stub" && process.env.NODE_ENV === "production" && !process.env.SMS_WEBHOOK_SECRET?.trim()) {
+  if (provider === "twilio" && process.env.NODE_ENV === "production" && !process.env.TWILIO_AUTH_TOKEN?.trim()) {
+    warnings.push("Set TWILIO_AUTH_TOKEN so inbound and status webhook signatures can be validated.");
+  } else if (provider !== "stub" && provider !== "twilio" && process.env.NODE_ENV === "production" && !process.env.SMS_WEBHOOK_SECRET?.trim()) {
     warnings.push("Set SMS_WEBHOOK_SECRET before enabling public inbound/status webhook URLs in production.");
   }
 
@@ -1863,4 +1878,13 @@ async function updateExternalMessageStatus(input: {
     });
     realtime?.broadcastMessageUpdated(participants.map((participant) => participant.userId), mapMessage(updated));
   }
+}
+
+export async function applyTwilioDeliveryCallback(input: {
+  providerMessageId: string;
+  providerStatus: string;
+  failureReason?: string;
+}, realtime?: MessageRealtimeServer): Promise<void> {
+  if (!input.providerMessageId) return;
+  await updateExternalMessageStatus(input, realtime);
 }

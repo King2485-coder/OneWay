@@ -1,7 +1,11 @@
 import express from "express";
 
 import { logger } from "../lib/logger";
+import { authMiddleware, type AuthenticatedRequest } from "../middleware/auth";
+import { applyTwilioDeliveryCallback } from "./messages";
 import { normalizeSMSPhoneNumber, setSMSOptOut } from "../services/sms/SMSOptOutStore";
+import { twilioWebhookMiddleware, validateTwilioProductionEnvironment } from "../services/twilio/TwilioSecurity";
+import { issueTwilioVoiceToken } from "../services/twilio/TwilioVoiceTokenService";
 
 const STOP_KEYWORDS = new Set(["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"]);
 const START_KEYWORDS = new Set(["START", "UNSTOP", "YES"]);
@@ -35,7 +39,33 @@ function redactedPhone(value: string): string {
 export function twilioRouter(): express.Router {
   const router = express.Router();
 
-  router.post("/inbound-sms", async (req, res) => {
+  router.get("/health", (_req, res) => {
+    const validation = validateTwilioProductionEnvironment();
+    res.status(validation.ok ? 200 : 503).json({
+      ok: validation.ok,
+      voiceConfigured: !validation.missing.some((name) => name.includes("TWILIO_API_KEY") || name.includes("TWIML_APP")),
+      messagingConfigured: !validation.missing.includes("TWILIO_MESSAGING_SERVICE_SID"),
+      webhookValidationConfigured: !validation.missing.includes("TWILIO_AUTH_TOKEN"),
+    });
+  });
+
+  router.get("/preflight", authMiddleware, (_req, res) => {
+    const validation = validateTwilioProductionEnvironment();
+    res.status(validation.ok ? 200 : 503).json(validation);
+  });
+
+  router.get("/voice/token", authMiddleware, (req, res) => {
+    try {
+      const result = issueTwilioVoiceToken(`oneway:${(req as AuthenticatedRequest).userId}`);
+      res.setHeader("Cache-Control", "no-store");
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "[twilio] voice token issue failed");
+      res.status(503).json({ error: "twilio_voice_token_not_configured" });
+    }
+  });
+
+  router.post("/inbound-sms", twilioWebhookMiddleware, async (req, res) => {
     const from = stringField(req.body.From);
     const to = stringField(req.body.To);
     const body = stringField(req.body.Body);
@@ -71,7 +101,7 @@ export function twilioRouter(): express.Router {
     }
   });
 
-  router.post("/message-status", (req, res) => {
+  router.post("/message-status", twilioWebhookMiddleware, async (req, res) => {
     const messageSid = stringField(req.body.MessageSid);
     const messageStatus = stringField(req.body.MessageStatus);
     const errorCode = stringField(req.body.ErrorCode);
@@ -90,6 +120,12 @@ export function twilioRouter(): express.Router {
     } else {
       logger.info(logPayload, "[twilio] message status");
     }
+
+    await applyTwilioDeliveryCallback({
+      providerMessageId: messageSid,
+      providerStatus: messageStatus,
+      failureReason: errorCode || errorMessage,
+    });
 
     res.status(204).end();
   });
