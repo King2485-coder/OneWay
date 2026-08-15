@@ -54,6 +54,7 @@ import { subscriptionsRouter } from "./routes/subscriptions";
 import { evaluatePSTNPreflight, pstnRouter } from "./routes/pstn";
 import { turnRouter } from "./routes/turn";
 import { twilioRouter } from "./routes/twilio";
+import { validateTwilioProductionEnvironment } from "./services/twilio/TwilioSecurity";
 import { uploadsRouter } from "./routes/uploads";
 import { usersRouter } from "./routes/users";
 import { voicemailRouter } from "./routes/voicemail";
@@ -965,6 +966,16 @@ initializeServer()
   });
 
 async function initializeServer(): Promise<void> {
+  if (process.env.NODE_ENV === "production"
+    && [process.env.PSTN_PROVIDER, process.env.SMS_PROVIDER].some((value) => value?.trim().toLowerCase() === "twilio")) {
+    const twilioValidation = validateTwilioProductionEnvironment();
+    if (!twilioValidation.ok) {
+      throw new Error(`Twilio production configuration invalid: ${[
+        ...twilioValidation.missing.map((name) => `missing ${name}`),
+        ...twilioValidation.warnings,
+      ].join("; ")}`);
+    }
+  }
   assertSitePublicationRoutesRegistered(registeredRouteKeys());
   await ensureIdentityWalkieNameColumn(prisma);
   await ensureOneWayContactLifecycleColumns(prisma);

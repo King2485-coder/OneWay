@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { logger } from "../../lib/logger";
-import { isSMSOptedOut } from "./SMSOptOutStore";
+import { hasSMSConsent, isSMSOptedOut } from "./SMSOptOutStore";
 import type { SMSOutboundMessageInput, SMSOutboundMessageResult, SMSProvider } from "./SMSProvider";
 
 function trimTrailingSlash(value: string): string {
@@ -43,12 +43,18 @@ export class TwilioSMSProvider implements SMSProvider {
     || process.env.TWILIO_FROM_NUMBER?.trim()
     || process.env.PSTN_FROM_NUMBER?.trim()
     || "";
-  private readonly webhookBaseUrl = (process.env.SMS_WEBHOOK_BASE_URL?.trim()
+  private readonly webhookBaseUrl = (process.env.TWILIO_WEBHOOK_BASE_URL?.trim()
+    || process.env.PUBLIC_WEBHOOK_BASE_URL?.trim()
+    || process.env.SMS_WEBHOOK_BASE_URL?.trim()
     || process.env.PSTN_WEBHOOK_BASE_URL?.trim()
     || "")
-    ? trimTrailingSlash(process.env.SMS_WEBHOOK_BASE_URL?.trim() || process.env.PSTN_WEBHOOK_BASE_URL!.trim())
+    ? trimTrailingSlash(
+      process.env.TWILIO_WEBHOOK_BASE_URL?.trim()
+      || process.env.PUBLIC_WEBHOOK_BASE_URL?.trim()
+      || process.env.SMS_WEBHOOK_BASE_URL?.trim()
+      || process.env.PSTN_WEBHOOK_BASE_URL!.trim(),
+    )
     : "";
-  private readonly webhookSecret = process.env.SMS_WEBHOOK_SECRET?.trim() ?? "";
   private readonly statusCallbackUrl = process.env.TWILIO_STATUS_CALLBACK_URL?.trim() ?? "";
 
   async sendOutboundMessage(input: SMSOutboundMessageInput): Promise<SMSOutboundMessageResult> {
@@ -63,6 +69,9 @@ export class TwilioSMSProvider implements SMSProvider {
     }
     if (await isSMSOptedOut(input.toPhoneNumber)) {
       return this.failed("Recipient has opted out of OneWay SMS messages.");
+    }
+    if (!await hasSMSConsent(input.toPhoneNumber, input.fromUserId)) {
+      return this.failed("Documented recipient SMS consent is required before sending.");
     }
 
     const endpoint = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(this.accountSid)}/Messages.json`;
@@ -80,8 +89,7 @@ export class TwilioSMSProvider implements SMSProvider {
     if (this.statusCallbackUrl) {
       params.set("StatusCallback", this.statusCallbackUrl);
     } else if (this.webhookBaseUrl) {
-      const secret = this.webhookSecret ? `?secret=${encodeURIComponent(this.webhookSecret)}` : "";
-      params.set("StatusCallback", `${this.webhookBaseUrl}/api/messages/external/twilio/status${secret}`);
+      params.set("StatusCallback", `${this.webhookBaseUrl}/api/messages/external/twilio/status`);
     }
 
     try {

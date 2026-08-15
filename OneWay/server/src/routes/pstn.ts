@@ -13,6 +13,7 @@ import {
   type LiveKitSIPParticipantSnapshot,
   type MediaBridgeStatus,
 } from "../services/pstn/LiveKitSIPBridgeService";
+import { twilioWebhookMiddleware, validateTwilioProductionEnvironment } from "../services/twilio/TwilioSecurity";
 
 const startCallSchema = z.object({
   toPhoneNumber: z.string().min(1).max(64),
@@ -2089,17 +2090,25 @@ export function pstnRouter(deps: PSTNRouterDeps): express.Router {
 
   router.get("/health", (_req, res) => {
     const preflight = evaluatePSTNPreflight(provider.name);
+    const twilioValidation = provider.name === "twilio" ? validateTwilioProductionEnvironment() : null;
     res.status(200).json({
-      ok: preflight.ok,
+      ok: preflight.ok && (twilioValidation?.ok ?? true),
       provider: preflight.provider,
       webhookBaseUrl: envValue("PSTN_WEBHOOK_BASE_URL"),
       mediaBridgeEnabled: preflight.mediaBridgeEnabled,
+      twilioWebhookValidationConfigured: twilioValidation
+        ? !twilioValidation.missing.includes("TWILIO_AUTH_TOKEN")
+        : undefined,
     });
   });
 
   router.get("/preflight", authMiddleware, async (_req, res) => {
     const preflight = evaluatePSTNPreflight(provider.name);
-    res.status(200).json(preflight);
+    const twilioValidation = provider.name === "twilio" ? validateTwilioProductionEnvironment() : null;
+    res.status(preflight.ok && (twilioValidation?.ok ?? true) ? 200 : 503).json({
+      ...preflight,
+      twilio: twilioValidation,
+    });
   });
 
   router.post("/calls/start", authMiddleware, async (req, res) => {
@@ -2691,7 +2700,7 @@ export function pstnRouter(deps: PSTNRouterDeps): express.Router {
     });
   });
 
-  router.post("/twilio/disclosure/timeout", async (req, res) => {
+  router.post("/twilio/disclosure/timeout", twilioWebhookMiddleware, async (req, res) => {
     const startedAt = Date.now();
     const callSessionId = text(req.query.callSessionId) ?? text(req.body?.callSessionId);
     const providerCallId = text(req.body?.CallSid) ?? text(req.query.CallSid);
@@ -2727,7 +2736,7 @@ export function pstnRouter(deps: PSTNRouterDeps): express.Router {
     );
   });
 
-  router.post("/twilio/disclosure/accept", async (req, res) => {
+  router.post("/twilio/disclosure/accept", twilioWebhookMiddleware, async (req, res) => {
     const startedAt = Date.now();
     const callSessionId = text(req.query.callSessionId) ?? text(req.body?.callSessionId);
     const providerCallId = text(req.body?.CallSid) ?? text(req.query.CallSid);
@@ -2845,7 +2854,7 @@ export function pstnRouter(deps: PSTNRouterDeps): express.Router {
     res.type("text/xml").status(200).send(xmlResponse(inner));
   });
 
-  router.all("/twilio/voice", async (req, res) => {
+  router.all("/twilio/voice", twilioWebhookMiddleware, async (req, res) => {
     const startedAt = Date.now();
     const callSessionId = text(req.query.callSessionId) ?? text(req.body?.callSessionId);
     const providerCallId = text(req.body?.CallSid) ?? text(req.query.CallSid);
@@ -3077,7 +3086,7 @@ export function pstnRouter(deps: PSTNRouterDeps): express.Router {
     }
   });
 
-  router.post("/twilio/status", async (req, res) => {
+  router.post("/twilio/status", twilioWebhookMiddleware, async (req, res) => {
     const callSessionId = text(req.query.callSessionId) ?? text(req.body?.callSessionId);
     const providerCallId = text(req.body?.CallSid);
     const providerStatus = text(req.body?.CallStatus);

@@ -18,6 +18,7 @@
     "test:ads": "tsx src/services/ads/AdsSelfTest.ts",
     "test:email": "tsx src/services/email/OneWayMailboxSelfTest.ts",
     "test:privacy-lifecycle": "tsx src/services/PrivacyLifecycleSelfTest.ts",
+    "test:twilio": "node --import tsx --test tests/twilio.test.ts",
     "build:public-site": "tsx scripts/export-public-site.ts",
     "verify:site-publication:production": "tsx scripts/verify-site-publication-production.ts",
     "verify:sites-public-host": "tsx scripts/verify-sites-public-host.ts",
