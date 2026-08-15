@@ -1,0 +1,12 @@
+/ /index.html 200!
+/about/ /about 301
+/start/ /start 301
+/contact/ /contact 301
+/support/ /support 301
+/delete-account/ /delete-account 301
+/privacy/ /privacy 301
+/terms/ /terms 301
+/sms/ /sms 301
+/sms-consent/ /sms-consent 301
+/acceptable-use/ /acceptable-use 301
+/* /index.html 200

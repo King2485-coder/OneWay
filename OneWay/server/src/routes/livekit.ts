@@ -7,6 +7,9 @@ import { sanitizeRoomName } from "../types/calls";
 import type { ICallRegistry } from "../services/CallRegistry";
 import { isParticipant } from "../types/calls";
 import type { LiveKitTokenService } from "../services/LiveKitTokenService";
+import { ensureUserRecord } from "../services/identity";
+import { loadCallerIdentity } from "../services/numbers";
+import { prisma } from "../lib/db";
 
 /**
  * POST /api/livekit/token
@@ -18,10 +21,8 @@ import type { LiveKitTokenService } from "../services/LiveKitTokenService";
  * for it. That stops a curious user from joining anyone's room by guessing
  * the name.
  *
- * If the registry doesn't know the room (ad-hoc test rooms, dev), we still
- * issue a token so internal tooling works — but only for the requesting
- * user's own identity. Either way the token's `identity` matches `req.userId`,
- * never an arbitrary string from the body.
+ * If the registry doesn't know the room, the request is rejected. OneWay
+ * clients never mint arbitrary LiveKit rooms directly.
  */
 
 interface LiveKitRouterDeps {
@@ -56,28 +57,64 @@ export function liveKitRouter(deps: LiveKitRouterDeps): express.Router {
     // The identity baked into the JWT is *always* the authenticated user.
     // We accept it on the body for parity with the LiveKit examples but
     // ignore any value other than the auth'd userId.
-    const identity = userId;
+    const identity = liveKitParticipantIdentity(userId);
     const displayName = parsed.data.displayName?.slice(0, 64);
 
-    // Authorization check: if this room belongs to a known call, the user
-    // must be a participant.
     const knownCall = deps.registry.findByRoom(roomName);
-    if (knownCall && !isParticipant(knownCall, userId)) {
-      res.status(403).json({ error: "not_participant" });
+    let allowPstnBridgeCaller = false;
+    if (!knownCall) {
+      const pstnSession = await prisma.callSession.findUnique({
+        where: { roomName },
+        select: {
+          callerUserId: true,
+          networkType: true,
+          status: true,
+        },
+      });
+
+      allowPstnBridgeCaller = Boolean(
+        pstnSession
+          && pstnSession.networkType === "pstnBridge"
+          && pstnSession.callerUserId === userId
+          && pstnSession.status !== "failed"
+          && pstnSession.status !== "ended"
+      );
+
+      if (!allowPstnBridgeCaller) {
+        res.status(403).json({
+          error: "room_not_authorized",
+          message: "OneWay network unavailable. Try again when connected.",
+        });
+        return;
+      }
+    } else if (!isParticipant(knownCall, userId)) {
+      res.status(403).json({
+        error: "not_participant",
+        message: "This OneWay room is not authorized for your account.",
+      });
       return;
     }
 
     try {
+      await ensureUserRecord(userId);
+      const callerIdentity = await loadCallerIdentity(userId);
       const result = await deps.tokens.issue({
         roomName,
         identity,
         displayName,
+        metadata: JSON.stringify({
+          userId,
+          participantIdentity: identity,
+          roomName,
+          callerName: callerIdentity.callerName,
+          callerNumber: callerIdentity.callerNumber,
+        }),
         ttlSeconds: 3600,
       });
       // Mark the user as a participant on the underlying call so future
       // /api/livekit/token requests for the same room from the same user
       // don't trip the not-participant guard if they reconnect.
-      if (knownCall && !knownCall.participants.includes(userId)) {
+      if (knownCall && !isParticipant(knownCall, userId)) {
         deps.registry.addParticipant(knownCall.callId, userId);
       }
       res.json(result);
@@ -88,4 +125,8 @@ export function liveKitRouter(deps: LiveKitRouterDeps): express.Router {
   });
 
   return router;
+}
+
+function liveKitParticipantIdentity(userId: string): string {
+  return `oneway-user-${userId.toLowerCase()}`;
 }

@@ -26,6 +26,7 @@
 import type { Server as HTTPServer, IncomingMessage } from "http";
 import type { ICallRegistry } from "../services/CallRegistry";
 import { parseAuthToken } from "../middleware/auth";
+import { logger } from "../lib/logger";
 import type {
   CallSession,
   ClientMessage,
@@ -37,6 +38,7 @@ import type {
   CallSignalPayload,
   PresenceUpdatePayload,
 } from "../types/calls";
+import { normalizeUserIdForCompare, sameUserId } from "../types/calls";
 
 // ---- Minimal local typings for `ws` ---------------------------------------
 // Bundling our own typings keeps the file compiling without @types/ws.
@@ -52,10 +54,28 @@ interface WSLike {
 }
 interface WSServerLike {
   on(event: "connection", cb: (ws: WSLike, req: IncomingMessage) => void): void;
+  emit(event: "connection", ws: WSLike, req: IncomingMessage): void;
+  handleUpgrade(req: IncomingMessage, socket: any, head: Buffer, cb: (ws: WSLike) => void): void;
   clients: Set<WSLike>;
   close(): void;
 }
 const WS_OPEN = 1;
+
+function bearerToken(value: string | string[] | undefined): string | undefined {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) return undefined;
+  return raw.replace(/^Bearer\s+/i, "").trim() || undefined;
+}
+
+function tokenFromRequestUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = new URL(value, "http://oneway.local");
+    return bearerToken(parsed.searchParams.get("token") ?? parsed.searchParams.get("access_token") ?? undefined);
+  } catch {
+    return undefined;
+  }
+}
 
 // ---- Public API -----------------------------------------------------------
 
@@ -74,13 +94,15 @@ export class CallWebSocketServer {
   private userOfSocket = new WeakMap<WSLike, string>();
   private heartbeat: NodeJS.Timeout | null = null;
   private alive = new WeakSet<WSLike>();
+  private ringingFanoutCallIds = new Set<string>();
+  private lastFanoutFingerprintByCallId = new Map<string, string>();
 
   constructor(private readonly deps: CallWebSocketServerDeps) {}
 
   start(httpServer: HTTPServer): void {
     // `ws` historically exported the server class as `Server`. Newer
     // versions also expose `WebSocketServer`. Support both shapes.
-    let WSConstructor: { new (opts: { server: HTTPServer; path?: string }): WSServerLike };
+    let WSConstructor: { new (opts: { server?: HTTPServer; path?: string; noServer?: boolean }): WSServerLike };
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const wsModule = require("ws");
@@ -100,7 +122,14 @@ export class CallWebSocketServer {
       return;
     }
 
-    this.wss = new WSConstructor({ server: httpServer, path: this.deps.path ?? "/ws/calls" });
+    const path = this.deps.path ?? "/ws/calls";
+    this.wss = new WSConstructor({ noServer: true });
+    httpServer.on("upgrade", (req, socket, head) => {
+      if (!this.isPathMatch(req.url, path)) return;
+      this.wss?.handleUpgrade(req, socket, head, (ws) => {
+        this.wss?.emit?.("connection", ws, req);
+      });
+    });
     this.wss.on("connection", (socket, req) => this.onConnection(socket, req));
 
     this.deps.registry.on("call:changed", (call: CallSession) => this.fanOutCallChange(call));
@@ -108,6 +137,14 @@ export class CallWebSocketServer {
 
     this.heartbeat = setInterval(() => this.runHeartbeat(), 25_000);
     this.heartbeat.unref();
+  }
+
+  private isPathMatch(url: string | undefined, expectedPath: string): boolean {
+    try {
+      return new URL(url ?? "", "http://oneway.local").pathname === expectedPath;
+    } catch {
+      return false;
+    }
   }
 
   stop(): void {
@@ -126,11 +163,15 @@ export class CallWebSocketServer {
     this.fanOutCallChange(call);
   }
 
+  isUserConnected(userId: string): boolean {
+    return (this.socketsByUser.get(normalizeUserIdForCompare(userId))?.size ?? 0) > 0;
+  }
+
   // ---- Connection lifecycle ---------------------------------------------
 
-  private onConnection(socket: WSLike, _req: IncomingMessage): void {
+  private onConnection(socket: WSLike, req: IncomingMessage): void {
     this.alive.add(socket);
-    let authedUserId: string | null = null;
+    let authedUserId: string | null = this.authenticateSocketFromRequest(socket, req);
 
     socket.on("pong", () => this.alive.add(socket));
 
@@ -147,6 +188,12 @@ export class CallWebSocketServer {
         return;
       }
 
+      if (authedUserId && msg.type === "auth") {
+        // Already authenticated from the WebSocket upgrade header/query.
+        // Keep accepting the legacy first-message auth packet as a harmless no-op.
+        return;
+      }
+
       // Pre-auth: only `auth` is acceptable.
       if (!authedUserId) {
         if (msg.type !== "auth") {
@@ -159,15 +206,7 @@ export class CallWebSocketServer {
           socket.close(4401, "auth_failed");
           return;
         }
-        authedUserId = id;
-        this.userOfSocket.set(socket, id);
-        this.indexSocket(id, socket);
-        this.broadcastPresence(id, true);
-        // Reply with current active calls so the client can recover state
-        // after a reconnect.
-        for (const call of this.deps.registry.activeForUser(id)) {
-          this.send(socket, "call:state", { call });
-        }
+        authedUserId = this.authenticateSocket(socket, id);
         return;
       }
 
@@ -185,6 +224,46 @@ export class CallWebSocketServer {
     });
   }
 
+  private authenticateSocketFromRequest(socket: WSLike, req: IncomingMessage): string | null {
+    const headerToken = bearerToken(req.headers.authorization);
+    const queryToken = tokenFromRequestUrl(req.url);
+    const id = parseAuthToken(headerToken) ?? parseAuthToken(queryToken);
+    if (!id) return null;
+    return this.authenticateSocket(socket, id);
+  }
+
+  private authenticateSocket(socket: WSLike, userId: string): string {
+    this.userOfSocket.set(socket, userId);
+    this.indexSocket(userId, socket);
+    logger.info({
+      userId,
+      socketCount: this.socketsByUser.get(normalizeUserIdForCompare(userId))?.size ?? 0,
+    }, "[calls:realtime] socket authenticated");
+    this.broadcastPresence(userId, true);
+    // Reply with current calls so the client can recover state after a
+    // reconnect. Recent terminal calls are replayed as `call:ended` to clear
+    // any local CallKit/LiveKit ghost if the realtime event was missed.
+    for (const call of this.deps.registry.callsForUser(userId)) {
+      if (call.status === "ended" || call.status === "missed" || call.status === "failed" || call.status === "declined") {
+        logger.info({
+          eventType: "call.ended",
+          callId: call.callId,
+          targetUserId: userId,
+          endedByUserId: call.endedByUserId,
+          operationId: lastOperationId(call),
+          sessionVersion: call.version ?? 1,
+          endedAt: call.endedAt ? new Date(call.endedAt).toISOString() : undefined,
+          sourceFunction: "CallWebSocketServer.authenticateSocket",
+          reason: "terminal_replay_on_reconnect",
+        }, "[calls:realtime] call.ended replayed");
+        this.send(socket, "call:ended", callEndedPayload(call));
+      } else {
+        this.send(socket, "call:state", { call });
+      }
+    }
+    return userId;
+  }
+
   private handleAuthed(socket: WSLike, userId: string, msg: ClientMessage): void {
     switch (msg.type) {
       case "call:invite": {
@@ -193,8 +272,13 @@ export class CallWebSocketServer {
           this.send(socket, "error", { code: "bad_payload", message: "calleeId required" });
           return;
         }
-        if (p.calleeId === userId) {
+        if (sameUserId(p.calleeId, userId)) {
           this.send(socket, "error", { code: "self_invite_forbidden", message: "cannot call yourself" });
+          return;
+        }
+        const existingCall = this.findActiveCallBetween(userId, p.calleeId);
+        if (existingCall) {
+          this.send(socket, "call:state", { call: existingCall });
           return;
         }
         const call = this.deps.registry.createCall({
@@ -227,7 +311,7 @@ export class CallWebSocketServer {
         // clients can measure RTT.
         const p = msg.payload as CallIdPayload | undefined;
         if (p?.callId) {
-          const call = this.deps.registry.get(p.callId);
+          const call = this.deps.registry.get(normalizeCallId(p.callId));
           if (call) this.send(socket, "call:state", { call });
         }
         return;
@@ -243,26 +327,30 @@ export class CallWebSocketServer {
           this.send(socket, "error", { code: "bad_payload", message: "callId/toUserId/kind/ciphertext required" });
           return;
         }
-        const call = this.deps.registry.get(p.callId);
+        const normalizedCallId = normalizeCallId(p.callId);
+        const call = this.deps.registry.get(normalizedCallId);
         if (!call) {
           this.send(socket, "error", { code: "not_found", message: "no such call" });
           return;
         }
-        const isParticipant = call.callerId === userId || call.calleeId === userId || call.participants.includes(userId);
+        const isParticipant =
+          sameUserId(call.callerId, userId) ||
+          sameUserId(call.calleeId, userId) ||
+          call.participants.some((participant) => sameUserId(participant, userId));
         if (!isParticipant) {
           this.send(socket, "error", { code: "not_participant", message: "not a call participant" });
           return;
         }
         // Only relay to the other party / participants of this call.
         const recipients = this.recipientsForCall(call);
-        if (!recipients.has(p.toUserId)) {
+        if (![...recipients].some((recipient) => sameUserId(recipient, p.toUserId))) {
           this.send(socket, "error", { code: "bad_recipient", message: "recipient not in call" });
           return;
         }
         // Relay without inspecting payload. Server never decrypts.
         this.sendToUser(p.toUserId, "call:signal", {
           signal: {
-            callId: p.callId,
+            callId: normalizedCallId,
             fromUserId: userId,
             kind: p.kind,
             ciphertext: p.ciphertext,
@@ -288,13 +376,17 @@ export class CallWebSocketServer {
     type: "call:accept" | "call:decline" | "call:hangup",
     callId: string
   ): void {
-    const call = this.deps.registry.get(callId);
+    const normalizedCallId = normalizeCallId(callId);
+    const call = this.deps.registry.get(normalizedCallId);
     if (!call) {
       this.send(socket, "error", { code: "not_found", message: "no such call" });
       return;
     }
-    const isCallee = call.calleeId === userId;
-    const isParticipant = isCallee || call.callerId === userId || call.participants.includes(userId);
+    const isCallee = sameUserId(call.calleeId, userId);
+    const isParticipant =
+      isCallee ||
+      sameUserId(call.callerId, userId) ||
+      call.participants.some((participant) => sameUserId(participant, userId));
 
     if (type === "call:accept" || type === "call:decline") {
       if (!isCallee) {
@@ -313,13 +405,28 @@ export class CallWebSocketServer {
 
     try {
       if (type === "call:accept") {
-        this.deps.registry.updateStatus(callId, "accepted", (c) => {
-          if (!c.participants.includes(userId)) c.participants.push(userId);
+        this.deps.registry.updateStatus(normalizedCallId, "accepting", (c) => {
+          if (!c.participants.some((participant) => sameUserId(participant, userId))) {
+            c.participants.push(userId);
+          }
+          c.acceptedAt = c.acceptedAt ?? Date.now();
         });
       } else if (type === "call:decline") {
-        this.deps.registry.updateStatus(callId, "declined");
+        this.deps.registry.updateStatus(normalizedCallId, "declined", (c) => {
+          c.endedAt = c.endedAt ?? Date.now();
+          c.endedByUserId = userId;
+          c.endReason = "remoteDeclined";
+        });
       } else {
-        this.deps.registry.updateStatus(callId, "ended");
+        this.deps.registry.updateStatus(normalizedCallId, "ended", (c) => {
+          c.endedAt = c.endedAt ?? Date.now();
+          c.endedByUserId = userId;
+          c.endReason = "explicitParticipantHangup";
+          c.endOperationIds = [
+            ...(c.endOperationIds ?? []),
+            `${normalizedCallId}:${userId}:${Date.now()}`,
+          ];
+        });
       }
     } catch (err) {
       const code = err instanceof Error ? err.message : "internal_error";
@@ -330,20 +437,122 @@ export class CallWebSocketServer {
   // ---- Fan-out ----------------------------------------------------------
 
   private fanOutCallChange(call: CallSession): void {
+    const fingerprint = this.fanoutFingerprint(call);
+    if (this.lastFanoutFingerprintByCallId.get(call.callId) === fingerprint) {
+      return;
+    }
+    this.lastFanoutFingerprintByCallId.set(call.callId, fingerprint);
+
+    if (call.status === "ringing") {
+      if (this.ringingFanoutCallIds.has(call.callId)) return;
+      this.ringingFanoutCallIds.add(call.callId);
+      this.logVideoTimeline("video.call.invite.received", call, call.calleeId, {
+        callStatus: call.status,
+        targetUserId: call.calleeId,
+      });
+      logger.info({
+        eventType: "incoming_oneway_call",
+        callSessionId: call.callId,
+        actorRole: "oneway_user",
+        targetUserId: call.calleeId,
+        initiatorUserId: call.callerId,
+        sourceFunction: "CallWebSocketServer.fanOutCallChange",
+        reason: "callee_ring",
+      }, "[calls] incoming call event sent");
+      this.sendToUser(call.calleeId, "call:ringing", { call });
+      this.sendToUser(call.callerId, "call:state", { call });
+      for (const userId of call.participants) {
+        if (userId !== call.calleeId && userId !== call.callerId) {
+          this.sendToUser(userId, "call:state", { call });
+        }
+      }
+      return;
+    }
+
+    this.ringingFanoutCallIds.delete(call.callId);
     const evt: ServerEvent = mapStatusToEvent(call.status);
+    if (evt === "call:ended") {
+      this.fanOutAuthoritativeCallEnded(call, "CallWebSocketServer.fanOutCallChange");
+      return;
+    }
     const recipients = this.recipientsForCall(call);
     for (const userId of recipients) {
+      if (evt === "call:accepted") {
+        this.logVideoTimeline(
+          sameUserId(userId, call.callerId)
+            ? "video.call.accepted.event.sent"
+            : "video.call.connecting.event.sent",
+          call,
+          userId,
+          { callStatus: call.status, targetUserId: userId }
+        );
+      }
       this.sendToUser(userId, evt, { call });
     }
   }
 
   private fanOutCallEnded(call: CallSession): void {
+    this.ringingFanoutCallIds.delete(call.callId);
+    this.lastFanoutFingerprintByCallId.delete(call.callId);
     // Some calls are evicted before any terminal status was broadcast (rare,
     // belt-and-suspenders). Send ended just in case.
+    this.fanOutAuthoritativeCallEnded(call, "CallWebSocketServer.fanOutCallEnded");
+  }
+
+  private fanOutAuthoritativeCallEnded(call: CallSession, sourceFunction: string): void {
     const recipients = this.recipientsForCall(call);
+    const payload = callEndedPayload(call);
+    logger.info({
+      marker: "CALL_ENDED_BROADCAST_STARTED",
+      callId: call.callId,
+      endedByUserId: call.endedByUserId,
+      callerUserId: call.callerId,
+      recipientUserId: call.calleeId,
+      operationId: lastOperationId(call),
+      version: call.version ?? 1,
+      recipientCount: recipients.size,
+      sourceFunction,
+    }, "[calls:realtime] call.ended broadcast started");
+    const callerSocketsReached = this.sendToUser(call.callerId, "call:ended", payload);
+    logger.info({
+      marker: "CALL_ENDED_SENT_TO_CALLER",
+      callId: call.callId,
+      endedByUserId: call.endedByUserId,
+      callerUserId: call.callerId,
+      recipientUserId: call.calleeId,
+      operationId: lastOperationId(call),
+      version: call.version ?? 1,
+      socketsReached: callerSocketsReached,
+      sourceFunction,
+    }, "[calls:realtime] call.ended sent to caller");
+    const recipientSocketsReached = this.sendToUser(call.calleeId, "call:ended", payload);
+    logger.info({
+      marker: "CALL_ENDED_SENT_TO_RECIPIENT",
+      callId: call.callId,
+      endedByUserId: call.endedByUserId,
+      callerUserId: call.callerId,
+      recipientUserId: call.calleeId,
+      operationId: lastOperationId(call),
+      version: call.version ?? 1,
+      socketsReached: recipientSocketsReached,
+      sourceFunction,
+    }, "[calls:realtime] call.ended sent to recipient");
     for (const userId of recipients) {
-      this.sendToUser(userId, "call:ended", { call });
+      if (sameUserId(userId, call.callerId) || sameUserId(userId, call.calleeId)) continue;
+      this.sendToUser(userId, "call:ended", payload);
     }
+    logger.info({
+      marker: "CALL_ENDED_BROADCAST_COMPLETED",
+      callId: call.callId,
+      endedByUserId: call.endedByUserId,
+      callerUserId: call.callerId,
+      recipientUserId: call.calleeId,
+      operationId: lastOperationId(call),
+      version: call.version ?? 1,
+      callerSocketsReached,
+      recipientSocketsReached,
+      sourceFunction,
+    }, "[calls:realtime] call.ended broadcast completed");
   }
 
   private recipientsForCall(call: CallSession): Set<string> {
@@ -369,37 +578,63 @@ export class CallWebSocketServer {
     for (const r of recipients) this.sendToUser(r, evt, { userId });
   }
 
+  private findActiveCallBetween(userA: string, userB: string): CallSession | undefined {
+    return this.deps.registry.activeForUser(userA).find((call) =>
+      (sameUserId(call.callerId, userA) && sameUserId(call.calleeId, userB)) ||
+      (sameUserId(call.callerId, userB) && sameUserId(call.calleeId, userA))
+    );
+  }
+
   // ---- Socket bookkeeping ----------------------------------------------
 
   private indexSocket(userId: string, socket: WSLike): void {
-    let set = this.socketsByUser.get(userId);
+    const key = normalizeUserIdForCompare(userId);
+    let set = this.socketsByUser.get(key);
     if (!set) {
       set = new Set();
-      this.socketsByUser.set(userId, set);
+      this.socketsByUser.set(key, set);
     }
     set.add(socket);
   }
 
   private unindexSocket(userId: string, socket: WSLike): void {
-    const set = this.socketsByUser.get(userId);
+    const key = normalizeUserIdForCompare(userId);
+    const set = this.socketsByUser.get(key);
     if (!set) return;
     set.delete(socket);
-    if (set.size === 0) this.socketsByUser.delete(userId);
+    if (set.size === 0) this.socketsByUser.delete(key);
   }
 
-  private sendToUser(userId: string, type: ServerEvent, payload: unknown): void {
-    const set = this.socketsByUser.get(userId);
-    if (!set) return;
-    for (const s of set) this.send(s, type, payload);
+  private sendToUser(userId: string, type: ServerEvent, payload: unknown): number {
+    const key = normalizeUserIdForCompare(userId);
+    const set = this.socketsByUser.get(key);
+    if (!set) {
+      const call = (payload as { call?: CallSession } | undefined)?.call;
+      if (call?.hasVideo) {
+        this.logVideoTimeline("video.call.event.no_socket", call, userId, {
+          eventType: type,
+          targetUserId: userId,
+          callStatus: call.status,
+        });
+      }
+      return 0;
+    }
+    let sent = 0;
+    for (const s of set) {
+      if (this.send(s, type, payload)) sent += 1;
+    }
+    return sent;
   }
 
-  private send(socket: WSLike, type: ServerEvent, payload: unknown): void {
-    if (socket.readyState !== WS_OPEN) return;
+  private send(socket: WSLike, type: ServerEvent, payload: unknown): boolean {
+    if (socket.readyState !== WS_OPEN) return false;
     const msg: ServerMessage = { type, payload };
     try {
       socket.send(JSON.stringify(msg));
+      return true;
     } catch (err) {
-      console.error("[ws] send failed", err);
+      logger.warn({ err }, "[ws] send failed");
+      return false;
     }
   }
 
@@ -418,6 +653,38 @@ export class CallWebSocketServer {
       }
     }
   }
+
+  private fanoutFingerprint(call: CallSession): string {
+    return [
+      call.callId,
+      call.status,
+      call.acceptedAt ?? "",
+      call.endedAt ?? "",
+      call.participants.join(","),
+    ].join("|");
+  }
+
+  private logVideoTimeline(
+    event: string,
+    call: CallSession,
+    currentUserId: string,
+    extra: Record<string, unknown> = {}
+  ): void {
+    if (!call.hasVideo) return;
+    logger.info({
+      event,
+      callId: call.callId,
+      conversationId: call.calleeId,
+      callerUserId: call.callerId,
+      recipientUserId: call.calleeId,
+      currentUserId,
+      roomName: call.roomName,
+      callStatus: call.status,
+      timestamp: new Date().toISOString(),
+      durationMs: Date.now() - call.createdAt,
+      ...extra,
+    }, "[video-call] timeline");
+  }
 }
 
 function mapStatusToEvent(status: CallSession["status"]): ServerEvent {
@@ -435,4 +702,43 @@ function mapStatusToEvent(status: CallSession["status"]): ServerEvent {
     default:
       return "call:state";
   }
+}
+
+function normalizeCallId(callId: string): string {
+  return callId.toLowerCase();
+}
+
+function lastOperationId(call: CallSession): string | undefined {
+  const ids = call.endOperationIds;
+  return ids && ids.length > 0 ? ids[ids.length - 1] : undefined;
+}
+
+function callEndedPayload(call: CallSession): {
+  call: CallSession;
+  event: {
+    type: "call.ended";
+    callId: string;
+    endedByUserId?: string;
+    operationId?: string;
+    reason: string;
+    status: "ended" | "missed" | "failed" | "declined";
+    sessionVersion: number;
+    endedAt?: string;
+  };
+} {
+  return {
+    call,
+    event: {
+      type: "call.ended",
+      callId: call.callId,
+      endedByUserId: call.endedByUserId,
+      operationId: lastOperationId(call),
+      reason: call.endReason ?? "hangup",
+      status: call.status === "missed" || call.status === "failed" || call.status === "declined"
+        ? call.status
+        : "ended",
+      sessionVersion: call.version ?? 1,
+      endedAt: call.endedAt ? new Date(call.endedAt).toISOString() : undefined,
+    },
+  };
 }

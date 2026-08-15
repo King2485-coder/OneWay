@@ -3,7 +3,8 @@ import express from "express";
 import { z } from "zod";
 
 import { getDevUserId, safeSlug } from "./helpers";
-import { generateStorefrontDraft } from "../services/ai";
+import { generateStorefrontDraft, generateStorefrontHelp } from "../services/ai";
+import { storefrontPublicShopUrl } from "../lib/storefrontPublicUrl";
 
 const generateSchema = z.object({
   prompt: z.string().min(1),
@@ -46,8 +47,31 @@ const autoReplySchema = z.object({
   context: z.string().max(500).optional(),
 });
 
+const storefrontHelpSchema = z.object({
+  type: z.enum(["shopName", "shopDescription", "sellerStory", "category", "productCopy", "storePolicies"]),
+  context: z.object({
+    shopName: z.string().optional(),
+    category: z.string().optional(),
+    sellerStory: z.string().optional(),
+    shopDescription: z.string().optional(),
+    productName: z.string().optional(),
+    productDescription: z.string().optional()
+  }).optional()
+});
+
 export function aiRouter({ prisma }: { prisma: PrismaClient }) {
   const router = express.Router();
+
+  router.post("/storefront-help", async (req, res) => {
+    const parsed = storefrontHelpSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "bad_request", issues: parsed.error.issues });
+
+    const text = await generateStorefrontHelp({
+      type: parsed.data.type,
+      context: parsed.data.context
+    });
+    res.json({ text });
+  });
 
   router.post("/storefronts/generate", async (req, res) => {
     const ownerId = getDevUserId(req);
@@ -70,14 +94,15 @@ export function aiRouter({ prisma }: { prisma: PrismaClient }) {
     });
 
     // 2) Create a real storefront record.
-    const baseSlug = safeSlug(draft.name || businessName || "store");
-    const slug = await uniqueSlug(prisma, baseSlug);
+    const baseHandle = safeSlug(draft.name || businessName || "store");
+    const handle = await uniqueHandle(prisma, baseHandle);
 
     const store = await prisma.storefront.create({
       data: {
         ownerId,
         name: draft.name,
-        slug,
+        handle,
+        slug: handle,
         description: draft.description,
         category: draft.category,
         tagline: draft.tagline || null,
@@ -94,7 +119,7 @@ export function aiRouter({ prisma }: { prisma: PrismaClient }) {
           create: draft.products.map((p) => ({
             name: p.name,
             description: p.description,
-            price: p.price,
+            price: normalizePrice(p.price),
             isSubscription: p.isSubscription
           }))
         },
@@ -116,10 +141,23 @@ export function aiRouter({ prisma }: { prisma: PrismaClient }) {
         id: store.id,
         ownerId: store.ownerId,
         name: store.name,
+        handle: store.handle,
         slug: store.slug,
+        shopUrl: storefrontPublicShopUrl(store.handle),
+        logoUrl: store.logoUrl,
+        bannerUrl: store.bannerUrl,
+        announcement: store.announcement,
         description: store.description,
+        sellerStory: store.sellerStory,
         category: store.category,
+        location: store.location,
         tagline: store.tagline,
+        shippingSettingsJson: store.shippingSettingsJson,
+        paymentStatus: store.paymentStatus,
+        paymentsReady: store.paymentsReady,
+        policiesReady: store.policiesReady,
+        setupComplete: false,
+        publishChecklist: [],
         published: store.published,
         products: store.products.map((p) => ({
           id: p.id,
@@ -218,7 +256,7 @@ export function aiRouter({ prisma }: { prisma: PrismaClient }) {
             storefrontId: id,
             name: p.name,
             description: p.description,
-            price: p.price,
+            price: normalizePrice(p.price),
             isSubscription: p.isSubscription
           }
         });
@@ -242,10 +280,23 @@ export function aiRouter({ prisma }: { prisma: PrismaClient }) {
         id: updated.id,
         ownerId: updated.ownerId,
         name: updated.name,
+        handle: updated.handle,
         slug: updated.slug,
+        shopUrl: storefrontPublicShopUrl(updated.handle),
+        logoUrl: updated.logoUrl,
+        bannerUrl: updated.bannerUrl,
+        announcement: updated.announcement,
         description: updated.description,
+        sellerStory: updated.sellerStory,
         category: updated.category,
+        location: updated.location,
         tagline: updated.tagline,
+        shippingSettingsJson: updated.shippingSettingsJson,
+        paymentStatus: updated.paymentStatus,
+        paymentsReady: updated.paymentsReady,
+        policiesReady: updated.policiesReady,
+        setupComplete: false,
+        publishChecklist: [],
         published: updated.published,
         products: (updated.products || []).map((p: any) => ({
           id: p.id,
@@ -453,10 +504,15 @@ export function aiRouter({ prisma }: { prisma: PrismaClient }) {
   return router;
 }
 
-async function uniqueSlug(prisma: PrismaClient, base: string): Promise<string> {
+function normalizePrice(price: string): string {
+  const value = Number(price.replace(/[$,]/g, "").trim());
+  return Number.isFinite(value) && value >= 0 ? value.toFixed(2) : "0.00";
+}
+
+async function uniqueHandle(prisma: PrismaClient, base: string): Promise<string> {
   let candidate = base;
   let counter = 1;
-  while (await prisma.storefront.findUnique({ where: { slug: candidate } })) {
+  while (await prisma.storefront.findFirst({ where: { OR: [{ handle: candidate }, { slug: candidate }] } })) {
     candidate = `${base}-${counter++}`;
   }
   return candidate;

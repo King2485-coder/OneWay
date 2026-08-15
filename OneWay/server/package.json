@@ -9,7 +9,21 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
-    "prisma:seed": "tsx prisma/seed.ts"
+    "prisma:seed": "tsx prisma/seed.ts",
+    "test:marketplace-fee": "tsx src/services/marketplaceFeeSelfTest.ts",
+    "test:stripe-marketplace": "tsx src/services/payments/StripeMarketplaceSelfTest.ts",
+    "test:pricing-agent": "tsx src/services/pricing/PricingAgentSelfTest.ts",
+    "test:service-orders": "tsx src/services/billing/ServiceOrderSelfTest.ts",
+    "audit:service-products:test": "tsx scripts/audit-oneway-order-products.ts",
+    "test:ads": "tsx src/services/ads/AdsSelfTest.ts",
+    "test:email": "tsx src/services/email/OneWayMailboxSelfTest.ts",
+    "test:privacy-lifecycle": "tsx src/services/PrivacyLifecycleSelfTest.ts",
+    "build:public-site": "tsx scripts/export-public-site.ts",
+    "verify:site-publication:production": "tsx scripts/verify-site-publication-production.ts",
+    "verify:sites-public-host": "tsx scripts/verify-sites-public-host.ts",
+    "security:scan-secrets": "node scripts/scan-secrets.js",
+    "security:verify-audit": "node scripts/verify-audit-log.js --limit 1000",
+    "security:check": "node scripts/security-check.js all"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.658.0",
@@ -20,14 +34,17 @@
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
+    "exceljs": "^4.4.0",
     "express": "^4.18.2",
     "express-rate-limit": "^7.4.1",
     "ioredis": "^5.4.1",
     "jsonwebtoken": "^9.0.2",
     "livekit-server-sdk": "^2.6.1",
     "multer": "^1.4.5-lts.1",
+    "pdfkit": "^0.19.1",
     "pino": "^9.4.0",
     "stripe": "^18.5.0",
+    "twilio": "^6.0.2",
     "ws": "^8.18.0",
     "zod": "^3.22.4"
   },
@@ -39,11 +56,17 @@
     "@types/jsonwebtoken": "^9.0.7",
     "@types/multer": "^1.4.12",
     "@types/node": "^25.6.0",
+    "@types/pdfkit": "^0.17.6",
     "@types/ws": "^8.5.13",
     "prisma": "^5.11.0",
     "ts-node": "^10.9.2",
     "tslib": "^2.6.2",
     "tsx": "^4.7.0",
     "typescript": "^5.4.5"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "11.1.1"
+    }
   }
 }

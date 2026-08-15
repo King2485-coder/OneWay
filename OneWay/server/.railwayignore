@@ -1,0 +1,14 @@
+node_modules/
+dist/
+data/
+uploads/
+.env
+.env.*
+secrets/
+cloudflared/
+netlify-public/
+netlify-site/
+new-site-source/
+web/
+*.log
+.DS_Store

@@ -3,6 +3,9 @@ import { z } from "zod";
 import { prisma } from "../lib/db";
 import { logger } from "../lib/logger";
 import { authRateLimit } from "../lib/rateLimit";
+import { authMiddleware, type AuthenticatedRequest } from "../middleware/auth";
+import { createInitialIdentity, normalizeOneWayId, sanitizeEmailAlias } from "../services/identity";
+import { assignInitialNumber } from "../services/numbers";
 
 /**
  * Email + password auth. Hashed with bcrypt, signed with HS256 JWT.
@@ -57,17 +60,64 @@ function loadJwt(): JwtModule | null {
 
 const credentialsSchema = z.object({
   email: z.string().email().max(254),
-  password: z.string().min(8).max(200),
+  password: z.string().min(6).max(200),
   displayName: z.string().min(1).max(64).optional(),
+  walkieName: z.string().min(1).max(32).optional(),
+  username: z.string().min(1).max(32).optional(),
+  onewayId: z.string().min(2).max(32).optional(),
+  emailAlias: z.string().min(1).max(64).optional(),
+  usernameHidden: z.boolean().optional(),
 });
 
-const loginSchema = credentialsSchema.pick({ email: true, password: true });
+const loginSchema = z.object({
+  identifier: z.string().min(1).max(254).optional(),
+  email: z.string().email().max(254).optional(),
+  password: z.string().min(6).max(200),
+});
 
 export function authRouter(): express.Router {
   const router = express.Router();
-  router.use(authRateLimit());
 
-  router.post("/register", async (req, res) => {
+  router.get("/me", authMiddleware, async (req, res) => {
+    const userId = (req as AuthenticatedRequest).userId;
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          email: true,
+          displayName: true,
+          chirpId: true,
+          identity: {
+            select: {
+              displayName: true,
+              username: true,
+              onewayId: true,
+            },
+          },
+        },
+      });
+
+      if (!user) {
+        res.status(404).json({ error: "user_not_found" });
+        return;
+      }
+
+      res.json({
+        userId: user.id,
+        email: user.email,
+        displayName: user.identity?.displayName ?? user.displayName,
+        handle: user.identity?.onewayId ?? null,
+        username: user.identity?.username ?? null,
+        chirpId: user.chirpId ?? null,
+      });
+    } catch (err) {
+      logger.error({ err, userId }, "[auth] me failed");
+      res.status(500).json({ error: "internal_error" });
+    }
+  });
+
+  router.post("/register", authRateLimit(), async (req, res) => {
     const bcrypt = loadBcrypt();
     const jwt = loadJwt();
     const secret = process.env.JWT_SECRET;
@@ -95,11 +145,41 @@ export function authRouter(): express.Router {
           displayName: parsed.data.displayName ?? email.split("@")[0],
         },
       });
+      await createInitialIdentity({
+        userId: user.id,
+        displayName: parsed.data.displayName ?? user.displayName,
+        walkieName: parsed.data.walkieName ?? parsed.data.displayName ?? user.displayName,
+        username: parsed.data.username ?? email.split("@")[0],
+        onewayId: parsed.data.onewayId ? normalizeOneWayId(parsed.data.onewayId) : undefined,
+        emailAlias: parsed.data.emailAlias ? sanitizeEmailAlias(parsed.data.emailAlias) : undefined,
+        usernameHidden: parsed.data.usernameHidden ?? true,
+      });
+      await assignInitialNumber(user.id);
       const token = signToken(jwt, secret, user.id);
+      const identity = await prisma.oneWayIdentity.findUnique({
+        where: { userId: user.id },
+        select: {
+          displayName: true,
+          walkieName: true,
+          username: true,
+          usernameHidden: true,
+          onewayId: true,
+          emailAlias: true,
+          showEmailAlias: true,
+          showOneWayId: true,
+          showNumbers: true,
+          preferredCallerIdentity: true,
+        },
+      });
       logger.info({ userId: user.id }, "[auth] registered");
       res.status(201).json({
         token,
-        user: { id: user.id, email: user.email, displayName: user.displayName },
+        user: {
+          id: user.id,
+          email: user.email,
+          displayName: user.displayName,
+          identity,
+        },
       });
     } catch (err) {
       logger.error({ err }, "[auth] register failed");
@@ -107,7 +187,7 @@ export function authRouter(): express.Router {
     }
   });
 
-  router.post("/login", async (req, res) => {
+  router.post("/login", authRateLimit(), async (req, res) => {
     const bcrypt = loadBcrypt();
     const jwt = loadJwt();
     const secret = process.env.JWT_SECRET;
@@ -120,26 +200,91 @@ export function authRouter(): express.Router {
       res.status(400).json({ error: "invalid_body", issues: parsed.error.issues });
       return;
     }
-    const email = parsed.data.email.toLowerCase();
+    const identifier = (parsed.data.identifier ?? parsed.data.email ?? "").trim();
+    if (!identifier) {
+      res.status(400).json({ error: "identifier_required" });
+      return;
+    }
+    logger.info({
+      event: "auth.login.request",
+      identifier: redactIdentifier(identifier),
+      source: req.headers["x-oneway-auth-source"] ?? "unknown",
+      retryCount: req.headers["x-oneway-auth-retry-count"] ?? "0",
+    }, "[auth] login request received");
     try {
-      const user = await prisma.user.findUnique({ where: { email } });
+      const emailLike = identifier.includes("@") && identifier.includes(".");
+      const byEmail = emailLike
+        ? await prisma.user.findUnique({ where: { email: identifier.toLowerCase() } })
+        : null;
+      const byOnewayId = identifier.startsWith("@")
+        ? await prisma.oneWayIdentity.findUnique({
+            where: { onewayId: normalizeOneWayId(identifier) },
+            select: { userId: true },
+          })
+        : null;
+      const byUsername = !identifier.startsWith("@") && !emailLike
+        ? await prisma.oneWayIdentity.findFirst({
+            where: { username: identifier },
+            select: { userId: true },
+          })
+        : null;
+
+      const userId = byEmail?.id ?? byOnewayId?.userId ?? byUsername?.userId ?? null;
+      const user = userId ? await prisma.user.findUnique({ where: { id: userId } }) : null;
       // Same response on missing user vs. wrong password — we do NOT leak
       // whether the email is registered.
-      if (!user || !user.passwordHash) {
+      if (!user || !user.passwordHash || user.accountStatus !== "active") {
         await timingPad();
+        logger.warn({
+          event: "auth.login.failed",
+          identifier: redactIdentifier(identifier),
+          statusCode: 401,
+          reason: "invalid_credentials",
+        }, "[auth] login failed");
         res.status(401).json({ error: "invalid_credentials" });
         return;
       }
       const ok = await bcrypt.compare(parsed.data.password, user.passwordHash);
       if (!ok) {
+        logger.warn({
+          event: "auth.login.failed",
+          identifier: redactIdentifier(identifier),
+          statusCode: 401,
+          reason: "invalid_credentials",
+        }, "[auth] login failed");
         res.status(401).json({ error: "invalid_credentials" });
         return;
       }
       const token = signToken(jwt, secret, user.id);
+      const identity = await prisma.oneWayIdentity.findUnique({
+        where: { userId: user.id },
+        select: {
+          displayName: true,
+          walkieName: true,
+          username: true,
+          usernameHidden: true,
+          onewayId: true,
+          emailAlias: true,
+          showEmailAlias: true,
+          showOneWayId: true,
+          showNumbers: true,
+          preferredCallerIdentity: true,
+        },
+      });
       res.json({
         token,
-        user: { id: user.id, email: user.email, displayName: user.displayName },
+        user: {
+          id: user.id,
+          email: user.email,
+          displayName: user.displayName,
+          identity,
+        },
       });
+      logger.info({
+        event: "auth.login.succeeded",
+        userId: user.id,
+        statusCode: 200,
+      }, "[auth] login succeeded");
     } catch (err) {
       logger.error({ err }, "[auth] login failed");
       res.status(500).json({ error: "internal_error" });
@@ -157,6 +302,16 @@ function signToken(jwt: JwtModule, secret: string, userId: string): string {
 function clampTtl(value: number): number {
   if (!Number.isFinite(value) || value <= 0) return 604800;
   return Math.min(value, 60 * 60 * 24 * 30);
+}
+
+function redactIdentifier(identifier: string): string {
+  const trimmed = identifier.trim();
+  if (trimmed.includes("@") && trimmed.includes(".")) {
+    const [local, domain] = trimmed.split("@");
+    return `${local.slice(0, 2)}…@${domain}`;
+  }
+  if (trimmed.length <= 4) return trimmed;
+  return `${trimmed.slice(0, 2)}…${trimmed.slice(-2)}`;
 }
 
 /** Constant-ish delay so login attempts on missing users take similar

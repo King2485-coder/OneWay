@@ -41,16 +41,21 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-unknown}
     restart: unless-stopped
     environment:
-      NODE_ENV: production
+      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3000
-      DATABASE_URL: postgres://${POSTGRES_USER:-oneway}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-oneway}
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-file:/app/data/dev.db}
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:?must be set}
       JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-604800}
       JWT_AUTH_REQUIRED: ${JWT_AUTH_REQUIRED:-true}
+      ONEWAY_DEV_AUTH_TOKEN: ${ONEWAY_DEV_AUTH_TOKEN:-}
       TRUST_PROXY: "1"
+      API_BASE_URL: ${API_BASE_URL:-https://api.oneway.is}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://oneway.is}
 
       # LiveKit
       LIVEKIT_URL: ${LIVEKIT_URL}
@@ -69,6 +74,98 @@ services:
       APNS_KEY_PATH: ${APNS_KEY_PATH:-/etc/oneway/apns.p8}
       APNS_ENVIRONMENT: ${APNS_ENVIRONMENT:-sandbox}
 
+      # PSTN bridge
+      PSTN_PROVIDER: ${PSTN_PROVIDER:-stub}
+      PSTN_FROM_NUMBER: ${PSTN_FROM_NUMBER}
+      PUBLIC_WEBHOOK_BASE_URL: ${PUBLIC_WEBHOOK_BASE_URL:-${PSTN_WEBHOOK_BASE_URL}}
+      PSTN_WEBHOOK_BASE_URL: ${PSTN_WEBHOOK_BASE_URL}
+      LIVEKIT_SIP_TRUNK_ID: ${LIVEKIT_SIP_TRUNK_ID}
+      PSTN_SIP_BRIDGE_URI_TEMPLATE: ${PSTN_SIP_BRIDGE_URI_TEMPLATE}
+
+      # Twilio
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      TWILIO_SIP_TRUNK_SID: ${TWILIO_SIP_TRUNK_SID}
+      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER}
+      TWILIO_MESSAGING_SERVICE_SID: ${TWILIO_MESSAGING_SERVICE_SID:-MG73e55a4feab312f928f96a7891f08044}
+      TWILIO_STATUS_CALLBACK_URL: ${TWILIO_STATUS_CALLBACK_URL:-https://api.oneway.is/api/twilio/message-status}
+      TWILIO_INBOUND_WEBHOOK_URL: ${TWILIO_INBOUND_WEBHOOK_URL:-https://api.oneway.is/api/twilio/inbound-sms}
+      TWILIO_A2P_COMPLIANCE_SID: ${TWILIO_A2P_COMPLIANCE_SID:-}
+      TWILIO_A2P_CAMPAIGN_STATUS: ${TWILIO_A2P_CAMPAIGN_STATUS:-}
+
+      # Business number search / claim
+      ONEWAY_NUMBER_PURCHASE_TOKEN_SECRET: ${ONEWAY_NUMBER_PURCHASE_TOKEN_SECRET:-}
+      ONEWAY_NUMBER_PROVIDER_MODE: ${ONEWAY_NUMBER_PROVIDER_MODE:-auto}
+      ONEWAY_LIVE_NUMBER_PURCHASES_ENABLED: ${ONEWAY_LIVE_NUMBER_PURCHASES_ENABLED:-false}
+
+      # External messaging bridge
+      SMS_PROVIDER: ${SMS_PROVIDER:-${PSTN_PROVIDER:-stub}}
+      SMS_FROM_NUMBER: ${SMS_FROM_NUMBER}
+      SMS_WEBHOOK_BASE_URL: ${SMS_WEBHOOK_BASE_URL:-${PSTN_WEBHOOK_BASE_URL}}
+      SMS_WEBHOOK_SECRET: ${SMS_WEBHOOK_SECRET}
+      SMS_ALLOW_UNREGISTERED_LONG_CODE: ${SMS_ALLOW_UNREGISTERED_LONG_CODE:-false}
+      SMS_A2P_CAMPAIGN_STATUS: ${SMS_A2P_CAMPAIGN_STATUS:-}
+
+      # OneWay public web search crawler
+      ONEWAY_SEARCH_ADMIN_TOKEN: ${ONEWAY_SEARCH_ADMIN_TOKEN}
+      ONEWAY_SEARCH_SEEDS: ${ONEWAY_SEARCH_SEEDS}
+      ONEWAY_CRAWLER_USER_AGENT: ${ONEWAY_CRAWLER_USER_AGENT:-OneWayBot/0.1 (+https://search.oneway.app/bot)}
+      ONEWAY_CRAWLER_RESPECT_ROBOTS: ${ONEWAY_CRAWLER_RESPECT_ROBOTS:-true}
+      ONEWAY_CRAWLER_DELAY_MS: ${ONEWAY_CRAWLER_DELAY_MS:-1200}
+      ONEWAY_CRAWLER_TIMEOUT_MS: ${ONEWAY_CRAWLER_TIMEOUT_MS:-10000}
+      ONEWAY_CRAWLER_MAX_BYTES: ${ONEWAY_CRAWLER_MAX_BYTES:-1500000}
+
+      # Ledger diagnostics/reconciliation
+      ONEWAY_LEDGER_ADMIN_TOKEN: ${ONEWAY_LEDGER_ADMIN_TOKEN:-}
+      LEDGER_RECONCILIATION_JOB_ENABLED: ${LEDGER_RECONCILIATION_JOB_ENABLED:-false}
+      LEDGER_RECONCILIATION_ACCOUNT_LIMIT: ${LEDGER_RECONCILIATION_ACCOUNT_LIMIT:-1000}
+      LEDGER_AUTO_HEAL_THRESHOLD_CENTS: ${LEDGER_AUTO_HEAL_THRESHOLD_CENTS:-5}
+
+      # Stripe marketplace / Connect
+      STRIPE_ENV: ${STRIPE_ENV:-sandbox}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_CONNECT_CLIENT_ID: ${STRIPE_CONNECT_CLIENT_ID:-}
+      STRIPE_PLATFORM_ACCOUNT_ID: ${STRIPE_PLATFORM_ACCOUNT_ID:-}
+      STRIPE_CONNECT_REFRESH_URL: ${STRIPE_CONNECT_REFRESH_URL:-https://api.oneway.is/payments/refresh}
+      STRIPE_CONNECT_RETURN_URL: ${STRIPE_CONNECT_RETURN_URL:-https://api.oneway.is/payments/return}
+      STRIPE_PORTAL_RETURN_URL: ${STRIPE_PORTAL_RETURN_URL:-https://oneway.is/settings/billing}
+      STRIPE_SUCCESS_URL: ${STRIPE_SUCCESS_URL:-https://oneway.is/success}
+      STRIPE_CANCEL_URL: ${STRIPE_CANCEL_URL:-https://oneway.is/cancel}
+
+      # Dormant OneWay Bank compliance layer. Keep off until banking/legal
+      # readiness is complete; storefronts keep using Stripe/payment links.
+      ONEWAY_BANK_ENABLED: ${ONEWAY_BANK_ENABLED:-false}
+      ONEWAY_BANK_MOCK_MODE: ${ONEWAY_BANK_MOCK_MODE:-true}
+      ONEWAY_BANK_API_URL: ${ONEWAY_BANK_API_URL:-}
+      ONEWAY_BANK_API_KEY: ${ONEWAY_BANK_API_KEY:-}
+      COMPLIANCE_LAYER_ENABLED: ${COMPLIANCE_LAYER_ENABLED:-false}
+      LEDGER_ENABLED: ${LEDGER_ENABLED:-false}
+      RECONCILIATION_ENABLED: ${RECONCILIATION_ENABLED:-false}
+      DISPUTES_ENABLED: ${DISPUTES_ENABLED:-false}
+      MODERN_TREASURY_API_KEY: ${MODERN_TREASURY_API_KEY:-}
+      MODERN_TREASURY_ORG_ID: ${MODERN_TREASURY_ORG_ID:-}
+      MODERN_TREASURY_WEBHOOK_KEY: ${MODERN_TREASURY_WEBHOOK_KEY:-}
+      UNIT_BASE_URL: ${UNIT_BASE_URL:-https://api.s.unit.sh}
+      UNIT_API_TOKEN: ${UNIT_API_TOKEN:-}
+      COMPLIANCE_EMAIL: ${COMPLIANCE_EMAIL:-}
+      BSA_OFFICER_EMAIL: ${BSA_OFFICER_EMAIL:-}
+      BANK_PARTNER_NAME: ${BANK_PARTNER_NAME:-}
+      LEGAL_COMPLIANCE_REVIEW_REQUIRED: ${LEGAL_COMPLIANCE_REVIEW_REQUIRED:-true}
+
+      # Telnyx
+      TELNYX_API_KEY: ${TELNYX_API_KEY}
+      TELNYX_CONNECTION_ID: ${TELNYX_CONNECTION_ID}
+      TELNYX_SIP_TRUNK_ID: ${TELNYX_SIP_TRUNK_ID}
+      TELNYX_FROM_NUMBER: ${TELNYX_FROM_NUMBER}
+
+      # Sinch
+      SINCH_PROJECT_ID: ${SINCH_PROJECT_ID}
+      SINCH_KEY_ID: ${SINCH_KEY_ID}
+      SINCH_KEY_SECRET: ${SINCH_KEY_SECRET}
+      SINCH_FROM_NUMBER: ${SINCH_FROM_NUMBER}
+
       # Storage
       S3_BUCKET: ${S3_BUCKET}
       S3_REGION: ${S3_REGION}
@@ -77,7 +174,14 @@ services:
       S3_PUBLIC_URL_BASE: ${S3_PUBLIC_URL_BASE}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      UPLOADS_DIR: ${UPLOADS_DIR:-/var/lib/oneway/uploads}
       STORAGE_HMAC_SECRET: ${STORAGE_HMAC_SECRET}
+
+      # Field-level encryption at rest. Off by default; requires a 32-byte
+      # base64 FIELD_ENCRYPTION_MASTER_KEY_BASE64 before enabling.
+      FIELD_ENCRYPTION_ENABLED: ${FIELD_ENCRYPTION_ENABLED:-false}
+      FIELD_ENCRYPTION_MASTER_KEY_BASE64: ${FIELD_ENCRYPTION_MASTER_KEY_BASE64:-}
+      FIELD_ENCRYPTION_KEY_ID: ${FIELD_ENCRYPTION_KEY_ID:-local-dev-v1}
 
       LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
@@ -86,9 +190,9 @@ services:
     volumes:
       # Mount your APNs .p8 here so APNS_KEY_PATH is reachable inside the container.
       - ./secrets:/etc/oneway:ro
-      # Persistent voicemail storage when running with local object storage.
+      # Persistent upload storage when running with local object storage.
       # Skip when using S3/R2.
-      - api-uploads:/app/uploads
+      - api-uploads:/var/lib/oneway/uploads
       - api-data:/app/data
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
@@ -98,8 +202,39 @@ services:
     expose:
       - "3000"
 
+  # Persistent public ingress for physical iPhones and cellular networks.
+  # Cloudflare terminates public TLS and forwards REST/WebSocket traffic over
+  # an outbound-only tunnel, so no router port forwarding is required.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "--config", "/etc/cloudflared/config.yml", "run"]
+    depends_on:
+      api: { condition: service_healthy }
+    volumes:
+      - ./cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+      - ${CLOUDFLARED_CREDENTIALS_PATH:-/Users/king/.cloudflared/d6d59b96-4067-4314-a86a-69ab652c7d53.json}:/etc/cloudflared/credentials.json:ro
+
+  # Optional web frontend container. OneWay's primary client is iOS, and the
+  # compliance site is currently served by the api process itself. This service
+  # exists to support a future web UI or a static build.
+  frontend:
+    image: nginx:1.27-alpine
+    profiles: ["frontend"]
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./web:/usr/share/nginx/html:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
   nginx:
     image: nginx:1.27-alpine
+    profiles: ["edge"]
     restart: unless-stopped
     depends_on:
       api: { condition: service_healthy }
@@ -108,8 +243,8 @@ services:
       - "443:443"
     volumes:
       - ./nginx/oneway.conf:/etc/nginx/conf.d/default.conf:ro
-      # certbot-managed certs:
-      - /etc/letsencrypt:/etc/letsencrypt:ro
+      # TLS certs (Cloudflare origin cert or Let's Encrypt). See nginx/oneway.conf.
+      - ./secrets:/etc/oneway:ro
     healthcheck:
       test: ["CMD", "nginx", "-t"]
       interval: 30s

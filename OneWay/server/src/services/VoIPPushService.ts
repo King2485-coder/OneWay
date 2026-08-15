@@ -8,7 +8,8 @@
  * we drop the token instead.
  *
  * Required env (token-auth, preferred):
- *   APNS_BUNDLE_ID, APNS_KEY_ID, APNS_TEAM_ID, APNS_KEY_PATH
+ *   APNS_BUNDLE_ID, APNS_KEY_ID, APNS_TEAM_ID, and either
+ *   APNS_KEY_P8_BASE64 (preferred on Railway) or APNS_KEY_PATH
  *   APNS_ENVIRONMENT  ("sandbox" | "production", default sandbox)
  *
  * Or cert-auth: APNS_CERT_PATH + APNS_KEY_PEM_PATH.
@@ -16,6 +17,7 @@
 
 import type { PushTokenStore } from "./PushTokenStore";
 import { logger } from "../lib/logger";
+import { apnsTokenConfigFromEnv } from "./apnsCredentials";
 
 interface ApnSdk {
   Provider: new (opts: ApnProviderOptions) => ApnProviderInstance;
@@ -36,7 +38,7 @@ interface ApnProviderInstance {
 }
 interface ApnNotification {
   topic: string;
-  pushType: "voip";
+  pushType: "voip" | "alert";
   priority: number;
   expiry: number;
   payload: Record<string, unknown>;
@@ -74,11 +76,27 @@ export interface VoIPPushArgs {
   hasVideo: boolean;
   displayName?: string;
   roomName?: string;
+  callerName?: string;
+  callerNumber?: string;
 }
 
-interface QueueItem extends VoIPPushArgs {
-  attempt: number;
+export interface CommunityMessagePushArgs {
+  userId: string;
+  communityId: string;
+  communityName: string;
+  messageId: string;
+  senderHandle: string;
+  senderDisplayName: string;
+  body: string;
 }
+
+type QueueItem = ({
+  kind: "call";
+} & VoIPPushArgs | {
+  kind: "communityMessage";
+} & CommunityMessagePushArgs) & {
+  attempt: number;
+};
 
 export class VoIPPushService {
   private provider: ApnProviderInstance | null = null;
@@ -93,8 +111,23 @@ export class VoIPPushService {
 
   /** Enqueue a push — `send` is fire-and-forget from the caller's POV. */
   async send(args: VoIPPushArgs): Promise<void> {
+    logger.info({
+      eventType: "incoming_oneway_call",
+      callSessionId: args.callId,
+      actorRole: "oneway_user",
+      targetUserId: args.userId,
+      initiatorUserId: args.callerId,
+      sourceFunction: "VoIPPushService.send",
+      reason: this.provider ? "queued" : "apns_provider_not_configured",
+    }, "[apn] incoming call push attempt");
     if (!this.provider) return;
-    this.queue.push({ ...args, attempt: 0 });
+    this.queue.push({ kind: "call", ...args, attempt: 0 });
+    this.kick();
+  }
+
+  async sendCommunityMessage(args: CommunityMessagePushArgs): Promise<void> {
+    if (!this.provider) return;
+    this.queue.push({ kind: "communityMessage", ...args, attempt: 0 });
     this.kick();
   }
 
@@ -119,7 +152,7 @@ export class VoIPPushService {
       const ok = await this.attempt(item);
       if (!ok && item.attempt + 1 < MAX_ATTEMPTS) {
         const delay = RETRY_DELAYS_MS[item.attempt];
-        logger.warn({ callId: item.callId, attempt: item.attempt }, "[apn] retrying push");
+        logger.warn({ kind: item.kind, attempt: item.attempt }, "[apn] retrying push");
         setTimeout(() => {
           this.queue.push({ ...item, attempt: item.attempt + 1 });
           this.kick();
@@ -138,22 +171,22 @@ export class VoIPPushService {
       return true; // terminal — nothing to retry against
     }
     const note = new sdk.Notification();
-    note.topic = `${this.bundleId}.voip`;
-    note.pushType = "voip";
+    note.topic = item.kind === "call" ? `${this.bundleId}.voip` : this.bundleId;
+    note.pushType = item.kind === "call" ? "voip" : "alert";
     note.priority = 10;
-    note.expiry = Math.floor(Date.now() / 1000) + 30;
-    note.payload = this.buildPayload(item);
+    note.expiry = Math.floor(Date.now() / 1000) + (item.kind === "call" ? 30 : 3600);
+    note.payload = item.kind === "call" ? this.buildPayload(item) : this.buildCommunityPayload(item);
     note.rawPayload = note.payload;
 
     try {
       const result = await this.provider.send(note, record.voipToken);
       if (result.sent.length > 0) {
-        logger.info({ callId: item.callId, userId: item.userId }, "[apn] push sent");
+        logger.info({ kind: item.kind, userId: item.userId }, "[apn] push sent");
         return true;
       }
       const failure = result.failed[0];
       const reason = failure?.response?.reason ?? failure?.status ?? "unknown";
-      logger.warn({ reason, userId: item.userId, callId: item.callId }, "[apn] push failed");
+      logger.warn({ reason, userId: item.userId, kind: item.kind }, "[apn] push failed");
       if (TERMINAL_REASONS.has(reason)) {
         await this.tokens.remove(record.voipToken);
         return true; // terminal
@@ -176,11 +209,9 @@ export class VoIPPushService {
     this.bundleId = bundleId;
     const production = process.env.APNS_ENVIRONMENT === "production";
 
-    const keyId = process.env.APNS_KEY_ID;
-    const teamId = process.env.APNS_TEAM_ID;
-    const keyPath = process.env.APNS_KEY_PATH;
-    if (keyId && teamId && keyPath) {
-      this.provider = new sdk.Provider({ token: { key: keyPath, keyId, teamId }, production });
+    const token = apnsTokenConfigFromEnv();
+    if (token) {
+      this.provider = new sdk.Provider({ token, production });
       logger.info({ production }, "[apn] provider initialized (token auth)");
       return;
     }
@@ -195,13 +226,52 @@ export class VoIPPushService {
   }
 
   private buildPayload(args: VoIPPushArgs): Record<string, unknown> {
+    logger.info({
+      eventType: "incoming_oneway_call",
+      sound: null,
+      usesCallKit: true,
+      callId: args.callId,
+      hasVideo: args.hasVideo,
+      sourceFunction: "VoIPPushService.buildPayload",
+    }, "CALL_PUSH_SOUND_POLICY");
     return {
       aps: { alert: "Incoming Call", "content-available": 1 },
+      eventType: "incoming_oneway_call",
       callId: args.callId,
       callerId: args.callerId,
       hasVideo: args.hasVideo,
       displayName: args.displayName ?? args.callerId,
+      callerName: args.callerName ?? args.callerId,
+      callerNumber: args.callerNumber,
       roomName: args.roomName,
+    };
+  }
+
+  private buildCommunityPayload(args: CommunityMessagePushArgs): Record<string, unknown> {
+    const body = args.body.length > 140 ? `${args.body.slice(0, 137)}...` : args.body;
+    logger.info({
+      eventType: "community.message.created",
+      sound: "default",
+      usesCallKit: false,
+      communityId: args.communityId,
+      sourceFunction: "VoIPPushService.buildCommunityPayload",
+    }, "CALL_PUSH_SOUND_POLICY");
+    return {
+      aps: {
+        alert: {
+          title: args.communityName,
+          subtitle: args.senderDisplayName || args.senderHandle,
+          body,
+        },
+        sound: "default",
+        category: "COMMUNITY_MESSAGE",
+        "thread-id": `community:${args.communityId}`,
+      },
+      type: "community.message.created",
+      communityId: args.communityId,
+      messageId: args.messageId,
+      senderHandle: args.senderHandle,
+      route: `oneway://community/${args.communityId}`,
     };
   }
 }

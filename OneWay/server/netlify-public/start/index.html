@@ -1,0 +1,1020 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OneWay | Start phone service</title>
+    <meta name="description" content="Start OneWay private phone service for $13/month." />
+    <meta name="robots" content="index,follow" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="OneWay" />
+    <meta property="og:title" content="OneWay | Start phone service" />
+    <meta property="og:description" content="Start OneWay private phone service for $13/month." />
+    <meta property="og:url" content="https://oneway.is/start" />
+    <meta property="og:image" content="https://oneway.is/assets/oneway-social-preview.png" />
+    <meta property="og:image:width" content="1734" />
+    <meta property="og:image:height" content="907" />
+    <meta property="og:image:alt" content="OneWay — Talk. Build. Sell. Belong. Plans start at $13/month." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="OneWay | Start phone service" />
+    <meta name="twitter:description" content="Start OneWay private phone service for $13/month." />
+    <meta name="twitter:image" content="https://oneway.is/assets/oneway-social-preview.png" />
+    <style>
+      :root {
+        color-scheme: light;
+        --fg: #0b0f16;
+        --muted: #52606d;
+        --panel: #ffffff;
+        --soft: #f6f8fb;
+        --line: rgba(15, 23, 42, 0.12);
+        --link: #0b5fff;
+        --accent: #0b5fff;
+        --shadow: 0 8px 24px rgba(2, 6, 23, 0.08);
+        --oneway-purple: #8b3dff;
+        --oneway-purple-soft: #c9a7ff;
+        --home-bg: #05030a;
+      }
+      html, body {
+        margin: 0;
+        padding: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        color: #0b0f16;
+        background:
+          linear-gradient(180deg, #ffffff 0, #f6f8fb 340px, #eef3f8 100%);
+      }
+      a { color: var(--link); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      body.home {
+        color: #fbf8ff;
+        background: #05030a;
+      }
+      body.home a { color: #fbf8ff; }
+      .container {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 0 18px;
+      }
+      .top {
+        background: #07111f;
+        color: #fff;
+        border-bottom: 1px solid rgba(255,255,255,0.12);
+      }
+      .top-inner {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 0;
+      }
+      body.home .top {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: rgba(9, 7, 18, 0.84);
+        border-bottom: 1px solid rgba(139, 61, 255, 0.26);
+        backdrop-filter: blur(18px);
+      }
+      body.home .top-inner {
+        min-height: 46px;
+      }
+      .brand {
+        color: #fff;
+        font-weight: 700;
+        letter-spacing: 0;
+        font-size: 18px;
+        white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .brand:hover { text-decoration: none; }
+      .brand-mark {
+        width: 28px;
+        height: 28px;
+        border-radius: 999px;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: var(--oneway-purple);
+        color: #fff;
+        font-size: 12px;
+        font-weight: 800;
+      }
+      body.home .brand-mark { display: inline-flex; }
+      .nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+        align-items: center;
+        justify-content: flex-end;
+      }
+      .nav a {
+        color: rgba(255,255,255,0.92);
+        font-size: 14px;
+      }
+      .nav a[aria-current="page"] {
+        color: #fff;
+        font-weight: 600;
+        text-decoration: underline;
+      }
+      body.home .nav {
+        gap: 26px;
+      }
+      body.home .nav a {
+        color: rgba(255,255,255,0.86);
+        font-size: 13px;
+        font-weight: 700;
+      }
+      .nav-cta {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 34px;
+        padding: 0 18px;
+        border-radius: 999px;
+        background: var(--oneway-purple);
+        color: #fff !important;
+        box-shadow: 0 0 22px rgba(139, 61, 255, 0.34);
+        font-size: 13px;
+        font-weight: 800;
+        white-space: nowrap;
+      }
+      .nav-cta:hover { text-decoration: none; }
+      main {
+        padding: 30px 0 12px 0;
+      }
+      body.home main {
+        padding: 0;
+        overflow: hidden;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+        padding: 28px;
+      }
+      .eyebrow {
+        margin: 0 0 8px 0;
+        color: #0b5fff;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+      .hero h1 {
+        margin: 0 0 10px 0;
+        font-size: 34px;
+        line-height: 1.12;
+        letter-spacing: 0;
+        max-width: 740px;
+      }
+      .lede {
+        margin: 0;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.55;
+        max-width: 760px;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 18px;
+      }
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        padding: 0 16px;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 700;
+        border: 1px solid transparent;
+      }
+      .button:hover { text-decoration: none; }
+      .button.primary {
+        background: #0b5fff;
+        color: #fff;
+      }
+      .button.secondary {
+        background: #fff;
+        color: #0b0f16;
+        border-color: var(--line);
+      }
+      body.home .button {
+        min-height: 42px;
+        border-radius: 999px;
+        padding: 0 22px;
+        font-size: 13px;
+      }
+      body.home .button.primary {
+        background: var(--oneway-purple);
+        color: #fff;
+        box-shadow: 0 0 28px rgba(139, 61, 255, 0.38);
+      }
+      body.home .button.secondary {
+        background: rgba(255,255,255,0.08);
+        color: #fff;
+        border-color: rgba(255,255,255,0.36);
+      }
+      .product-hero {
+        min-height: clamp(620px, 82vh, 860px);
+        display: grid;
+        align-items: center;
+        position: relative;
+        isolation: isolate;
+        background:
+          linear-gradient(90deg, rgba(5,3,10,0.98) 0%, rgba(5,3,10,0.9) 28%, rgba(5,3,10,0.42) 58%, rgba(5,3,10,0.24) 100%),
+          linear-gradient(180deg, rgba(5,3,10,0.10), rgba(5,3,10,0.86)),
+          url("/assets/oneway-private-mobile-hero.png") center right / cover no-repeat;
+      }
+      .product-hero::after {
+        content: "";
+        position: absolute;
+        inset: auto 0 0 0;
+        height: 30%;
+        background: linear-gradient(180deg, rgba(5,3,10,0), #05030a);
+        z-index: -1;
+      }
+      .hero-copy {
+        width: min(760px, calc(100% - 40px));
+        margin-left: max(20px, calc((100vw - 1180px) / 2 + 18px));
+        padding: 88px 0 84px;
+      }
+      body.home .eyebrow {
+        color: var(--oneway-purple-soft);
+      }
+      .product-hero h1 {
+        margin: 14px 0 18px;
+        max-width: 720px;
+        color: #fff;
+        font-size: clamp(42px, 6vw, 82px);
+        line-height: 0.98;
+        letter-spacing: 0;
+      }
+      body.home .lede {
+        color: rgba(255,255,255,0.84);
+        max-width: 650px;
+        font-size: clamp(16px, 1.7vw, 20px);
+        line-height: 1.55;
+        font-weight: 650;
+      }
+      .price-line {
+        margin-top: 24px;
+        max-width: 650px;
+        color: #fff;
+        font-size: 17px;
+        line-height: 1.5;
+        font-weight: 800;
+      }
+      .product-band {
+        margin: 0;
+        padding: 84px max(20px, calc((100vw - 1180px) / 2 + 18px));
+        background: #05030a;
+      }
+      .section-heading {
+        max-width: 780px;
+        margin-bottom: 28px;
+      }
+      .product-band h2,
+      .plan-strip h2 {
+        margin: 8px 0 0;
+        color: #fff;
+        font-size: clamp(28px, 4vw, 48px);
+        line-height: 1.05;
+      }
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 14px;
+      }
+      .feature-grid article,
+      .plan-strip article {
+        border: 1px solid rgba(139, 61, 255, 0.28);
+        border-radius: 8px;
+        background: linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.035));
+        padding: 22px;
+      }
+      .feature-grid span {
+        display: inline-flex;
+        margin-bottom: 26px;
+        padding: 5px 9px;
+        border: 1px solid rgba(201, 167, 255, 0.26);
+        border-radius: 999px;
+        background: rgba(139, 61, 255, 0.1);
+        color: var(--oneway-purple-soft);
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        font-weight: 900;
+      }
+      .feature-grid h3 {
+        margin: 0;
+        color: #fff;
+        font-size: 22px;
+        line-height: 1.12;
+      }
+      body.home p {
+        color: rgba(255,255,255,0.76);
+      }
+      .feature-grid p,
+      .plan-strip p {
+        color: rgba(255,255,255,0.72);
+      }
+      .section-copy {
+        max-width: 720px;
+        font-size: 16px;
+      }
+      .hero-proof {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 9px;
+        margin-top: 28px;
+      }
+      .hero-proof span {
+        padding: 7px 11px;
+        border: 1px solid rgba(255,255,255,0.17);
+        border-radius: 999px;
+        background: rgba(5,3,10,0.48);
+        color: rgba(255,255,255,0.76);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.03em;
+      }
+      .pricing-band,
+      .addons-band {
+        margin: 0;
+        padding: 86px max(20px, calc((100vw - 1180px) / 2 + 18px));
+        background: linear-gradient(180deg, #090612, #05030a);
+      }
+      .addons-band {
+        padding-top: 24px;
+      }
+      .pricing-band h2,
+      .addons-band h2,
+      .closing-band h2 {
+        margin: 8px 0 0;
+        color: #fff;
+        font-size: clamp(30px, 4vw, 50px);
+        line-height: 1.04;
+      }
+      .pricing-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 14px;
+        align-items: stretch;
+      }
+      .pricing-grid article {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        padding: 24px;
+        border: 1px solid rgba(139, 61, 255, 0.25);
+        border-radius: 18px;
+        background: rgba(255,255,255,0.045);
+      }
+      .pricing-grid article.featured-plan {
+        border-color: rgba(201, 167, 255, 0.72);
+        background: linear-gradient(180deg, rgba(139,61,255,0.19), rgba(255,255,255,0.05));
+        box-shadow: 0 22px 60px rgba(72, 25, 142, 0.24);
+      }
+      .plan-badge {
+        position: absolute;
+        top: 14px;
+        right: 14px;
+        margin: 0;
+        padding: 5px 8px;
+        border-radius: 999px;
+        background: var(--oneway-purple);
+        color: white !important;
+        font-size: 10px;
+        font-weight: 900;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .plan-name {
+        margin: 0 !important;
+        color: #fff !important;
+        font-size: 15px;
+        font-weight: 900;
+      }
+      .plan-price {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        margin: 16px 0 8px;
+      }
+      .plan-price strong {
+        color: #fff;
+        font-size: 40px;
+        letter-spacing: -0.04em;
+      }
+      .plan-price span {
+        color: rgba(255,255,255,0.56);
+        font-size: 12px;
+        font-weight: 800;
+      }
+      .pricing-grid .button {
+        margin-top: auto;
+      }
+      .home-check-list {
+        flex: 1;
+        list-style: none;
+        margin: 16px 0 24px;
+        padding: 0;
+      }
+      .home-check-list li {
+        position: relative;
+        margin-top: 9px;
+        padding-left: 19px;
+        color: rgba(255,255,255,0.75);
+        font-size: 13px;
+      }
+      .home-check-list li::before {
+        content: "✓";
+        position: absolute;
+        left: 0;
+        color: var(--oneway-purple-soft);
+        font-weight: 900;
+      }
+      .addon-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .addon-grid article {
+        padding: 20px;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 14px;
+        background: rgba(255,255,255,0.035);
+      }
+      .addon-grid h3 {
+        margin: 8px 0 0;
+        color: #fff;
+        font-size: 22px;
+      }
+      .mini-label {
+        margin: 0 !important;
+        color: var(--oneway-purple-soft) !important;
+        font-size: 10px;
+        font-weight: 900;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+      .closing-band {
+        margin: 0;
+        padding: 100px max(20px, calc((100vw - 900px) / 2 + 18px));
+        text-align: center;
+        background:
+          radial-gradient(circle at 50% 0, rgba(139,61,255,0.27), transparent 45%),
+          #05030a;
+      }
+      .closing-band p {
+        max-width: 650px;
+        margin-left: auto;
+        margin-right: auto;
+      }
+      .closing-band .actions {
+        justify-content: center;
+      }
+      .plan-strip {
+        margin: 0;
+        padding: 0 max(20px, calc((100vw - 1180px) / 2 + 18px)) 90px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        background: #05030a;
+      }
+      .plan-strip .button {
+        margin-top: 18px;
+      }
+      section { margin-top: 22px; }
+      article {
+        min-width: 0;
+      }
+      h2 {
+        margin: 0 0 10px 0;
+        font-size: 18px;
+      }
+      p, li {
+        color: #0b0f16;
+        line-height: 1.6;
+        font-size: 15px;
+      }
+      p { margin: 10px 0 0 0; }
+      ul { margin: 10px 0 0 18px; }
+      .grid {
+        display: grid;
+        gap: 16px;
+      }
+      .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .grid article {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 16px;
+        background: #fff;
+      }
+      .band {
+        border: 1px solid rgba(11, 95, 255, 0.16);
+        background: linear-gradient(180deg, rgba(11, 95, 255, 0.06), rgba(11, 95, 255, 0.025));
+        border-radius: 8px;
+        padding: 18px;
+      }
+      .callout {
+        margin-top: 12px;
+        padding: 12px 14px;
+        border-radius: 8px;
+        background: rgba(11, 95, 255, 0.07);
+        border: 1px solid rgba(11, 95, 255, 0.18);
+        color: #0b0f16;
+      }
+      .checkout-flow {
+        margin-top: 22px;
+      }
+      .checkout-steps {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+        margin-bottom: 18px;
+      }
+      .checkout-steps span {
+        min-height: 38px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 800;
+      }
+      .checkout-steps span.is-active {
+        background: #07111f;
+        border-color: #07111f;
+        color: #fff;
+      }
+      .checkout-steps span.is-complete {
+        background: rgba(11, 95, 255, 0.08);
+        border-color: rgba(11, 95, 255, 0.24);
+        color: #0b5fff;
+      }
+      .checkout-form {
+        display: grid;
+        gap: 16px;
+      }
+      .checkout-form fieldset {
+        margin: 0;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+      .checkout-form legend {
+        padding: 0 8px;
+        font-weight: 900;
+      }
+      .checkout-form label {
+        display: grid;
+        gap: 7px;
+        margin-top: 14px;
+        color: #0b0f16;
+        font-size: 14px;
+        font-weight: 800;
+      }
+      .checkout-form input,
+      .checkout-form select,
+      .checkout-form textarea {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid rgba(15, 23, 42, 0.18);
+        border-radius: 8px;
+        padding: 12px;
+        color: #0b0f16;
+        background: #fff;
+        font: inherit;
+      }
+      .checkout-form textarea {
+        min-height: 108px;
+        resize: vertical;
+      }
+      .plan-summary {
+        display: flex;
+        gap: 16px;
+        align-items: flex-start;
+        justify-content: space-between;
+        padding: 16px;
+        border-radius: 8px;
+        background: #f6f8fb;
+        border: 1px solid var(--line);
+      }
+      .plan-summary strong {
+        display: block;
+        font-size: 17px;
+      }
+      .plan-summary span {
+        color: #0b5fff;
+        font-weight: 950;
+        white-space: nowrap;
+      }
+      .check-list {
+        list-style: none;
+        padding: 0;
+        margin: 14px 0 0 0;
+      }
+      .check-list li {
+        margin-top: 8px;
+        padding-left: 22px;
+        position: relative;
+      }
+      .check-list li::before {
+        content: "✓";
+        position: absolute;
+        left: 0;
+        color: #0b5fff;
+        font-weight: 900;
+      }
+      .consent-row {
+        grid-template-columns: auto 1fr;
+        align-items: start;
+        font-weight: 650;
+      }
+      .consent-row input {
+        width: 18px;
+        height: 18px;
+        margin-top: 2px;
+      }
+      .form-status {
+        min-height: 22px;
+        margin: 0;
+        color: var(--muted);
+        font-weight: 700;
+      }
+      .checkout-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+      }
+      .checkout-actions button {
+        cursor: pointer;
+      }
+      .footer {
+        margin-top: 30px;
+        border-top: 1px solid var(--line);
+        background: #fff;
+      }
+      body.home .footer {
+        margin-top: 0;
+        background: #030208;
+        border-top: 1px solid rgba(139, 61, 255, 0.22);
+      }
+      .footer-inner {
+        padding: 18px 0;
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .footer-links {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .footer-links a {
+        color: #0b0f16;
+        font-size: 14px;
+      }
+      body.home .footer-links a,
+      body.home .footer-meta,
+      body.home .footer-meta a {
+        color: rgba(255,255,255,0.66);
+      }
+      .footer-meta {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .footer-meta a { color: var(--muted); }
+      .dot { opacity: 0.7; }
+      @media (min-width: 641px) and (max-width: 1020px) {
+        .feature-grid,
+        .pricing-grid,
+        .addon-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        body.home .nav {
+          gap: 16px;
+        }
+      }
+      @media (max-width: 640px) {
+        .top-inner {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+        body.home .top-inner {
+          align-items: center;
+          flex-direction: row;
+          flex-wrap: wrap;
+          gap: 10px 14px;
+        }
+        body.home .nav {
+          order: 3;
+          width: 100%;
+          gap: 14px;
+          justify-content: flex-start;
+          overflow-x: auto;
+          padding-bottom: 2px;
+        }
+        body.home .nav-cta {
+          min-height: 32px;
+          padding: 0 14px;
+          font-size: 12px;
+        }
+        .hero h1 { font-size: 28px; }
+        .panel { padding: 20px; }
+        .nav {
+          gap: 10px 12px;
+          justify-content: flex-start;
+        }
+        .grid.two,
+        .grid.three {
+          grid-template-columns: 1fr;
+        }
+        .checkout-steps {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .plan-summary {
+          flex-direction: column;
+        }
+        .checkout-actions {
+          flex-direction: column-reverse;
+        }
+        .product-hero {
+          min-height: 720px;
+          align-items: end;
+          background:
+            linear-gradient(180deg, rgba(5,3,10,0.24) 0%, rgba(5,3,10,0.56) 44%, rgba(5,3,10,0.98) 82%),
+            url("/assets/oneway-private-mobile-hero.png") 64% top / auto 58% no-repeat,
+            #05030a;
+        }
+        .hero-copy {
+          width: auto;
+          margin: 0;
+          padding: 330px 20px 54px;
+        }
+        .product-hero h1 {
+          font-size: clamp(38px, 12vw, 54px);
+          line-height: 1;
+        }
+        body.home .lede,
+        .price-line {
+          font-size: 15px;
+        }
+        .product-band {
+          padding: 54px 20px;
+        }
+        .feature-grid,
+        .plan-strip,
+        .pricing-grid,
+        .addon-grid {
+          grid-template-columns: 1fr;
+        }
+        .pricing-band,
+        .addons-band {
+          padding: 58px 20px;
+        }
+        .addons-band {
+          padding-top: 8px;
+        }
+        .closing-band {
+          padding: 70px 20px;
+        }
+        .plan-strip {
+          padding: 0 20px 62px;
+        }
+        .footer-inner {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+      }
+    </style>
+  </head>
+  <body class="subpage">
+    
+    <header class="top">
+      <div class="container top-inner">
+        <a class="brand" href="/"><span class="brand-mark">1</span><span>OneWay</span></a>
+        <nav class="nav">
+          
+          <a href="/about">About</a>
+          <a href="/sms">SMS</a>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <a href="/acceptable-use">Acceptable Use</a>
+          <a href="/support">Support</a>
+          <a href="/contact">Contact</a>
+          <a href="/start" aria-current="page">Start</a>
+          
+        </nav>
+        
+      </div>
+    </header>
+  
+    <main>
+      <div class="container">
+        <div class="panel">
+          
+      <section class="hero">
+        <p class="eyebrow">OneWay phone service</p>
+        <h1>Start private phone service.</h1>
+        <p class="lede">Set up OneWay Basic for $13/month with two OneWay numbers included, then complete the purchase handoff.</p>
+      </section>
+
+      <section class="checkout-flow" data-checkout-flow>
+        <div class="checkout-steps" aria-label="Checkout steps">
+          <span class="is-active" data-step-label="1">Plan</span>
+          <span data-step-label="2">Account</span>
+          <span data-step-label="3">Number</span>
+          <span data-step-label="4">Purchase</span>
+        </div>
+
+        <form class="checkout-form" data-checkout-form>
+          <fieldset data-step="1">
+            <legend>Review your plan</legend>
+            <div class="plan-summary">
+              <div>
+                <strong>OneWay private phone service</strong>
+                <p>$13/month with two OneWay numbers included. Private OneWay-to-OneWay communication is included.</p>
+              </div>
+              <span>$13/mo</span>
+            </div>
+            <ul class="check-list">
+              <li>Two OneWay numbers included</li>
+              <li>Private OneWay calls, video, Chirp, and messaging</li>
+              <li>Communities, Quantum browsing, and access to creator tools</li>
+            </ul>
+          </fieldset>
+
+          <fieldset data-step="2" hidden>
+            <legend>Create your service profile</legend>
+            <label>
+              Full name
+              <input name="name" autocomplete="name" required />
+            </label>
+            <label>
+              Email
+              <input name="email" type="email" autocomplete="email" required />
+            </label>
+            <label>
+              Mobile number
+              <input name="phone" type="tel" autocomplete="tel" required />
+            </label>
+          </fieldset>
+
+          <fieldset data-step="3" hidden>
+            <legend>Choose your first number setup</legend>
+            <label>
+              Service number
+              <select name="numberSetup" required>
+                <option value="">Select an option</option>
+                <option value="new-number">Get a new OneWay number</option>
+                <option value="port-number">Bring my current number</option>
+                <option value="decide-later">Decide after purchase</option>
+              </select>
+            </label>
+            <label>
+              Setup notes
+              <textarea name="notes" placeholder="Preferred area code, current carrier, or anything we should know."></textarea>
+            </label>
+          </fieldset>
+
+          <fieldset data-step="4" hidden>
+            <legend>Complete purchase</legend>
+            <div class="plan-summary">
+              <div>
+                <strong>Total due today</strong>
+                <p>OneWay private phone service subscription.</p>
+              </div>
+              <span>$13</span>
+            </div>
+            <label class="consent-row">
+              <input name="consent" type="checkbox" required />
+              <span>I agree to the <a href="/terms">Terms</a>, <a href="/privacy">Privacy Policy</a>, and service-related SMS notices for setup and account alerts.</span>
+            </label>
+            <p class="callout">After you confirm, OneWay will open the purchase handoff with your setup details so the service purchase can be completed.</p>
+          </fieldset>
+
+          <p class="form-status" data-form-status aria-live="polite"></p>
+          <div class="checkout-actions">
+            <button class="button secondary" type="button" data-prev hidden>Back</button>
+            <button class="button primary" type="button" data-next>Continue</button>
+            <button class="button primary" type="submit" data-submit hidden>Complete purchase</button>
+          </div>
+        </form>
+      </section>
+
+      <script>
+        (() => {
+          const form = document.querySelector("[data-checkout-form]");
+          if (!form) return;
+
+          const steps = Array.from(form.querySelectorAll("[data-step]"));
+          const labels = Array.from(document.querySelectorAll("[data-step-label]"));
+          const prev = form.querySelector("[data-prev]");
+          const next = form.querySelector("[data-next]");
+          const submit = form.querySelector("[data-submit]");
+          const status = form.querySelector("[data-form-status]");
+          let index = 0;
+
+          const update = () => {
+            steps.forEach((step, stepIndex) => {
+              step.hidden = stepIndex !== index;
+            });
+            labels.forEach((label, labelIndex) => {
+              label.classList.toggle("is-active", labelIndex === index);
+              label.classList.toggle("is-complete", labelIndex < index);
+            });
+            prev.hidden = index === 0;
+            next.hidden = index === steps.length - 1;
+            submit.hidden = index !== steps.length - 1;
+            status.textContent = "";
+          };
+
+          const currentStepIsValid = () => {
+            const controls = Array.from(steps[index].querySelectorAll("input, select, textarea"));
+            for (const control of controls) {
+              if (!control.checkValidity()) {
+                control.reportValidity();
+                return false;
+              }
+            }
+            return true;
+          };
+
+          next.addEventListener("click", () => {
+            if (!currentStepIsValid()) return;
+            index = Math.min(index + 1, steps.length - 1);
+            update();
+          });
+
+          prev.addEventListener("click", () => {
+            index = Math.max(index - 1, 0);
+            update();
+          });
+
+          form.addEventListener("submit", (event) => {
+            event.preventDefault();
+            if (!currentStepIsValid()) return;
+
+            const data = new FormData(form);
+            const subject = "Start OneWay private phone service";
+            const body = [
+              "I am ready to complete the $13/month OneWay service purchase.",
+              "",
+              "Name: " + (data.get("name") || ""),
+              "Email: " + (data.get("email") || ""),
+              "Mobile number: " + (data.get("phone") || ""),
+              "Number setup: " + (data.get("numberSetup") || ""),
+              "Setup notes: " + (data.get("notes") || "")
+            ].join("\n");
+
+            status.textContent = "Opening the purchase handoff...";
+            window.location.href = "mailto:support@oneway.is?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body);
+          });
+
+          update();
+        })();
+      </script>
+    
+        </div>
+      </div>
+    </main>
+    
+    <footer class="footer">
+      <div class="container footer-inner">
+        <div class="footer-links">
+          <a href="/about">About</a>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <a href="/sms">SMS</a>
+          <a href="/acceptable-use">Acceptable Use</a>
+          <a href="/support">Support</a>
+          <a href="/start">Start Service</a>
+          <a href="/delete-account">Delete Account</a>
+          <a href="/contact">Contact</a>
+        </div>
+        <div class="footer-meta">
+          <span>2026 OneWay</span>
+          <span class="dot">·</span>
+          <a href="mailto:support@oneway.is">support@oneway.is</a>
+        </div>
+      </div>
+    </footer>
+  
+  </body>
+</html>

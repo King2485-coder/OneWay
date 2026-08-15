@@ -15,44 +15,429 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(uuid())
-  email         String?   @unique
+  id                    String    @id @default(uuid())
+  email                 String?   @unique
   /// bcrypt hash. Nullable while we phase out dev tokens; required for
   /// real auth flows once `JWT_AUTH_REQUIRED=true`.
-  passwordHash  String?
-  displayName   String
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  passwordHash          String?
+  displayName           String
+  chirpId               String?   @unique
+  chirpIdNormalized     String?   @unique
+  chirpIdCreatedAt      DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  accountStatus         String    @default("active")
+  loginDisabledAt       DateTime?
+  publicProfileHiddenAt DateTime?
 
-  storefronts   Storefront[]
-  conversations ConversationParticipant[]
-  callsAsCaller Call[]    @relation("CallerCalls")
-  callsAsCallee Call[]    @relation("CalleeCalls")
-  callHistory   CallHistoryEntry[]
-  pushTokens    PushToken[]
-  voicemailsIn  Voicemail[] @relation("VoicemailCallee")
-  voicemailsOut Voicemail[] @relation("VoicemailCaller")
-  orders        Order[]
+  storefronts            Storefront[]
+  conversations          ConversationParticipant[]
+  callsAsCaller          Call[]                    @relation("CallerCalls")
+  callsAsCallee          Call[]                    @relation("CalleeCalls")
+  callHistory            CallHistoryEntry[]
+  pushTokens             PushToken[]
+  voicemailsIn           Voicemail[]               @relation("VoicemailCallee")
+  voicemailsOut          Voicemail[]               @relation("VoicemailCaller")
+  orders                 Order[]
+  numbers                UserNumber[]
+  subscriptions          Subscription[]
+  sellerEntitlements     SellerEntitlement[]
+  sellerPlanTransactions SellerPlanTransaction[]
+  identity               OneWayIdentity?
+  walkiePrivacy          WalkiePrivacySettings?
+  businessPresence       BusinessPresence?
+  sites                  Site[]
+  siteMediaAssets        SiteMediaAsset[]
+  sitePublications       SitePublication[]
+  storeInquiries         StoreInquiry[]
+  storeNotifications     StoreNotification[]
+  storeOrderRequests     StoreOrderRequest[]
+  storeEmailMessages     StoreEmailMessage[]
+  storeAnalyticsEvents   StoreAnalyticsEvent[]
+  emailMailbox           EmailMailbox?
+  alertPushTokens        AlertPushToken[]
+}
+
+model AlertPushToken {
+  id          String   @id @default(uuid())
+  userId      String
+  token       String   @unique
+  environment String
+  previewMode String   @default("sender_subject")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, updatedAt])
+}
+
+model EmailMailbox {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  address   String   @unique
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  threads        EmailThread[]
+  messages       EmailMessage[]
+  blockedSenders EmailBlockedSender[]
+  labels         EmailLabel[]
+}
+
+model EmailThread {
+  id             String   @id @default(uuid())
+  mailboxId      String
+  subjectPreview String   @default("")
+  lastMessageAt  DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  mailbox  EmailMailbox   @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
+  messages EmailMessage[]
+
+  @@index([mailboxId, lastMessageAt])
+}
+
+model EmailMessage {
+  id                String    @id @default(uuid())
+  threadId          String
+  mailboxId         String
+  providerMessageId String?
+  direction         String
+  folder            String
+  fromJson          String
+  toJson            String
+  ccJson            String    @default("[]")
+  bccJson           String    @default("[]")
+  subject           String    @default("")
+  bodyText          String    @default("")
+  bodyHtml          String?
+  status            String
+  isRead            Boolean   @default(false)
+  isStarred         Boolean   @default(false)
+  spamScore         Float?
+  headersJson       String?
+  sentAt            DateTime?
+  receivedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  thread         EmailThread          @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  mailbox        EmailMailbox         @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
+  attachments    EmailAttachment[]
+  deliveryEvents EmailDeliveryEvent[]
+  messageLabels  EmailMessageLabel[]
+
+  @@unique([mailboxId, providerMessageId])
+  @@index([mailboxId, folder, createdAt])
+}
+
+model EmailAttachment {
+  id          String   @id @default(uuid())
+  messageId   String
+  filename    String
+  contentType String
+  storageKey  String   @unique
+  bytes       Int
+  createdAt   DateTime @default(now())
+
+  message EmailMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+}
+
+model EmailBlockedSender {
+  id              String   @id @default(uuid())
+  mailboxId       String
+  senderHash      String
+  senderEncrypted String
+  createdAt       DateTime @default(now())
+
+  mailbox EmailMailbox @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
+
+  @@unique([mailboxId, senderHash])
+}
+
+model EmailLabel {
+  id        String   @id @default(uuid())
+  mailboxId String
+  name      String
+  color     String   @default("purple")
+  createdAt DateTime @default(now())
+
+  mailbox       EmailMailbox        @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
+  messageLabels EmailMessageLabel[]
+
+  @@unique([mailboxId, name])
+}
+
+model EmailMessageLabel {
+  messageId String
+  labelId   String
+  createdAt DateTime @default(now())
+
+  message EmailMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  label   EmailLabel   @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, labelId])
+}
+
+model EmailWebhookReceipt {
+  token     String   @id
+  provider  String
+  createdAt DateTime @default(now())
+}
+
+model EmailDeliveryEvent {
+  id               String   @id
+  messageId        String?
+  provider         String
+  eventType        String
+  recipientHash    String?
+  detailsEncrypted String?
+  createdAt        DateTime @default(now())
+
+  message EmailMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+}
+
+model EmailSuppressionEntry {
+  id                 String   @id @default(uuid())
+  recipientHash      String   @unique
+  recipientEncrypted String
+  reason             String
+  provider           String
+  createdAt          DateTime @default(now())
+}
+
+model AuditEvent {
+  id           String   @id @default(uuid())
+  actorId      String?
+  actorType    String
+  action       String
+  resourceType String
+  resourceId   String?
+  metadataJson String   @default("{}")
+  prevHash     String?
+  eventHash    String   @unique
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorType, action, createdAt])
+  @@index([resourceType, resourceId])
+}
+
+model SecurityCheckRun {
+  id          String   @id @default(uuid())
+  checkType   String
+  status      String
+  severity    String
+  summary     String
+  detailsJson String   @default("{}")
+  startedAt   DateTime
+  finishedAt  DateTime
+
+  @@index([checkType, finishedAt])
+  @@index([severity, finishedAt])
+  @@index([status, finishedAt])
+}
+
+model OneWayIdentity {
+  id                      String   @id @default(uuid())
+  userId                  String   @unique
+  displayName             String?
+  walkieName              String?
+  username                String?
+  usernameHidden          Boolean  @default(true)
+  onewayId                String   @unique
+  emailAlias              String   @unique
+  showEmailAlias          Boolean  @default(false)
+  showOneWayId            Boolean  @default(true)
+  showNumbers             Boolean  @default(false)
+  preferredCallerIdentity String   @default("onewayId")
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([displayName])
+  @@index([username])
+}
+
+model UserNumber {
+  id        String   @id @default(uuid())
+  userId    String
+  number    String   @unique
+  label     String?
+  isPrimary Boolean  @default(false)
+  isPaid    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isPrimary])
+  @@index([userId, createdAt])
+}
+
+model Subscription {
+  id        String    @id @default(uuid())
+  userId    String
+  productId String
+  status    String
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([productId])
+}
+
+model SellerPackage {
+  id                String    @id @default(uuid())
+  code              String    @unique
+  displayName       String
+  description       String
+  packageType       String
+  billingType       String
+  quantity          Int?
+  priceAmount       Float
+  currency          String    @default("USD")
+  active            Boolean   @default(true)
+  sortOrder         Int       @default(0)
+  externalProductId String?
+  externalPriceId   String?
+  appStoreProductId String?
+  startsAt          DateTime?
+  endsAt            DateTime?
+  metadata          String    @default("{}")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([active, sortOrder])
+  @@index([packageType, billingType])
+}
+
+model SellerEntitlement {
+  id                String    @id @default(uuid())
+  userId            String
+  entitlementType   String
+  sourceType        String
+  sourceReferenceId String?
+  quantity          Int       @default(0)
+  startsAt          DateTime  @default(now())
+  expiresAt         DateTime?
+  status            String    @default("ACTIVE")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([entitlementType])
+  @@index([expiresAt])
+}
+
+model SellerPlanTransaction {
+  id                    String    @id @default(uuid())
+  userId                String
+  packageId             String
+  transactionType       String
+  billingProvider       String
+  providerTransactionId String?   @unique
+  providerCustomerId    String?
+  idempotencyKey        String    @unique
+  amount                Float
+  currency              String    @default("USD")
+  paymentStatus         String    @default("CREATED")
+  entitlementStatus     String    @default("PENDING")
+  refundedAmount        Float     @default(0)
+  purchasedAt           DateTime?
+  effectiveAt           DateTime?
+  expiresAt             DateTime?
+  metadata              String    @default("{}")
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([paymentStatus])
+  @@index([transactionType])
+}
+
+model CallSession {
+  id                    String    @id @default(uuid())
+  roomName              String    @unique
+  callerUserId          String
+  calleeUserId          String
+  networkType           String    @default("oneWayNative")
+  callerRole            String?
+  calleeRole            String?
+  provider              String?
+  providerCallId        String?
+  twilioCallSid         String?
+  sipParticipantId      String?
+  mediaBridgeStatus     String?
+  externalPhoneNumber   String?
+  callerOneWayNumber    String?
+  destinationNumber     String?
+  callerLiveKitIdentity String?
+  pstnLiveKitIdentity   String?
+  callerCallKitUUID     String?
+  fromIdentity          String?
+  fromNumber            String?
+  toIdentity            String?
+  toNumber              String?
+  status                String    @default("ringing")
+  failureReason         String?
+  startedAt             DateTime  @default(now())
+  answeredAt            DateTime?
+  endedAt               DateTime?
+  endedReason           String?
+
+  @@index([callerUserId, startedAt])
+  @@index([calleeUserId, startedAt])
+  @@index([status])
+  @@index([providerCallId])
+  @@index([twilioCallSid])
+  @@index([sipParticipantId])
+  @@index([networkType, startedAt])
+}
+
+model OneWayNetworkEvent {
+  id        String   @id @default(uuid())
+  userId    String?
+  type      String
+  target    String?
+  // Keep as String for SQLite parity in local dev. Production Postgres can
+  // migrate this to Json later without changing the event model shape.
+  metadata  String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
 }
 
 // ---------- Calling subsystem (replaces in-memory CallRegistry source-of-truth)
 
 model Call {
-  id          String    @id @default(uuid())
-  callerId    String
-  calleeId    String
+  id         String    @id @default(uuid())
+  callerId   String
+  calleeId   String
   /// "ringing" | "accepted" | "ended" | "declined" | "missed" | "failed"
-  status      String
-  roomName    String
-  hasVideo    Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  acceptedAt  DateTime?
-  endedAt     DateTime?
+  status     String
+  roomName   String
+  hasVideo   Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  acceptedAt DateTime?
+  endedAt    DateTime?
 
-  caller      User      @relation("CallerCalls", fields: [callerId], references: [id], onDelete: Cascade)
-  callee      User      @relation("CalleeCalls", fields: [calleeId], references: [id], onDelete: Cascade)
-  history     CallHistoryEntry[]
-  voicemails  Voicemail[]
+  caller     User               @relation("CallerCalls", fields: [callerId], references: [id], onDelete: Cascade)
+  callee     User               @relation("CalleeCalls", fields: [calleeId], references: [id], onDelete: Cascade)
+  history    CallHistoryEntry[]
+  voicemails Voicemail[]
 
   @@index([callerId, createdAt])
   @@index([calleeId, createdAt])
@@ -72,8 +457,8 @@ model CallHistoryEntry {
   createdAt       DateTime @default(now())
   voicemailId     String?
 
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  call      Call      @relation(fields: [callId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  call      Call       @relation(fields: [callId], references: [id], onDelete: Cascade)
   voicemail Voicemail? @relation(fields: [voicemailId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
@@ -94,42 +479,523 @@ model Voicemail {
   listened        Boolean  @default(false)
   createdAt       DateTime @default(now())
 
-  call    Call @relation(fields: [callId], references: [id], onDelete: Cascade)
-  caller  User @relation("VoicemailCaller", fields: [callerId], references: [id], onDelete: Cascade)
-  callee  User @relation("VoicemailCallee", fields: [calleeId], references: [id], onDelete: Cascade)
+  call    Call               @relation(fields: [callId], references: [id], onDelete: Cascade)
+  caller  User               @relation("VoicemailCaller", fields: [callerId], references: [id], onDelete: Cascade)
+  callee  User               @relation("VoicemailCallee", fields: [calleeId], references: [id], onDelete: Cascade)
   history CallHistoryEntry[]
 
   @@index([calleeId, createdAt])
 }
 
 model PushToken {
-  id           String   @id @default(uuid())
-  userId       String
-  voipToken    String   @unique
+  id          String   @id @default(uuid())
+  userId      String
+  voipToken   String   @unique
   /// "sandbox" | "production"
-  environment  String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  environment String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
 
+model WalkiePrivacySettings {
+  id                               String   @id @default(uuid())
+  userId                           String   @unique
+  allowFriends                     Boolean  @default(true)
+  allowFriendsOfFriends            Boolean  @default(false)
+  allowAnyone                      Boolean  @default(true)
+  allowDirectChirp                 Boolean  @default(true)
+  directChirpAudience              String   @default("everyone")
+  askBeforeConnecting              Boolean  @default(true)
+  allowRepeatChirps                Boolean  @default(false)
+  silenceUnknownChirps             Boolean  @default(true)
+  requireVerifiedAccount           Boolean  @default(false)
+  hideProfilePhotoFromUnknownUsers Boolean  @default(false)
+  blockUnknownDuringDnd            Boolean  @default(true)
+  autoBlockRepeatedAbuse           Boolean  @default(true)
+  createdAt                        DateTime @default(now())
+  updatedAt                        DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model DirectChirpRequest {
+  id                 String    @id @default(uuid())
+  senderUserId       String
+  recipientUserId    String
+  senderChirpId      String
+  recipientChirpId   String
+  status             String    @default("pending")
+  clientRequestId    String
+  sourceDeviceId     String?
+  notificationSentAt DateTime?
+  pushNotificationId String?
+  channelId          String?
+  abuseScore         Int       @default(0)
+  createdAt          DateTime  @default(now())
+  expiresAt          DateTime
+  acceptedAt         DateTime?
+  declinedAt         DateTime?
+  ignoredAt          DateTime?
+  blockedAt          DateTime?
+  cancelledAt        DateTime?
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([senderUserId, recipientUserId, clientRequestId])
+  @@index([recipientUserId, status, createdAt])
+  @@index([senderUserId, status, createdAt])
+  @@index([channelId])
+}
+
+model ChirpTrustPermission {
+  id              String   @id @default(uuid())
+  ownerUserId     String
+  permittedUserId String
+  permission      String   @default("oneTime")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([ownerUserId, permittedUserId])
+  @@index([ownerUserId, permission])
+  @@index([permittedUserId])
+}
+
+model OneWayContact {
+  id            String    @id @default(uuid())
+  userId        String
+  contactUserId String
+  status        String    @default("pending")
+  direction     String    @default("outgoing")
+  nickname      String?
+  acceptedAt    DateTime?
+  removedAt     DateTime?
+  blockedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([userId, contactUserId])
+  @@index([userId, status])
+  @@index([contactUserId, status])
+}
+
+model Friendship {
+  id              String    @id @default(uuid())
+  requesterUserId String
+  recipientUserId String
+  pairKey         String    @unique
+  status          String    @default("pending")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  acceptedAt      DateTime?
+  deniedAt        DateTime?
+  ignoredAt       DateTime?
+  declinedAt      DateTime?
+  blockedAt       DateTime?
+  removedAt       DateTime?
+
+  @@index([requesterUserId])
+  @@index([recipientUserId])
+  @@index([status])
+  @@index([recipientUserId, status])
+  @@index([requesterUserId, status])
+}
+
+model WalkieFavorite {
+  id            String   @id @default(uuid())
+  userId        String
+  contactUserId String
+  createdAt     DateTime @default(now())
+
+  @@unique([userId, contactUserId])
+  @@index([userId, createdAt])
+  @@index([contactUserId])
+}
+
+model BusinessPresence {
+  id                    String   @id @default(uuid())
+  userId                String   @unique
+  businessName          String   @default("")
+  industry              String   @default("")
+  publicPhoneNumber     String   @default("")
+  businessHours         String   @default("")
+  greeting              String   @default("")
+  missedCallAutoReply   String   @default("")
+  aiReceptionistEnabled Boolean  @default(false)
+  planId                String   @default("")
+  smsStatus             String   @default("notConfigured")
+  voiceStatus           String   @default("notConfigured")
+  setupStep             String   @default("businessIdentity")
+  onboardingProgress    Int      @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Site {
+  id                  String    @id @default(uuid())
+  userId              String
+  domain              String
+  title               String    @default("")
+  description         String    @default("")
+  mode                String    @default("nocode")
+  html                String    @default("")
+  blocksJson          String    @default("[]")
+  aiPrompt            String    @default("")
+  publishedHtml       String    @default("")
+  publishedAt         DateTime?
+  slug                String?
+  publicAddress       String?
+  visibility          String    @default("PUBLIC")
+  status              String    @default("DRAFT")
+  activePublicationId String?
+  draftVersion        Int       @default(1)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mediaAssets  SiteMediaAsset[]
+  publications SitePublication[]
+
+  @@unique([userId, domain])
+  @@unique([slug])
+  @@index([domain])
+  @@index([status, visibility])
+  @@index([userId, updatedAt])
+}
+
+model SiteMediaAsset {
+  id                   String    @id @default(uuid())
+  siteId               String
+  ownerId              String
+  mediaType            String    @default("IMAGE")
+  storageKey           String
+  originalStorageKey   String?
+  processedStorageKey  String?
+  thumbnailStorageKey  String?
+  playbackManifestKey  String?
+  originalFileName     String
+  mimeType             String
+  sourceMimeType       String?
+  outputMimeType       String?
+  width                Int?
+  height               Int?
+  durationMilliseconds Int?
+  fileSizeBytes        Int
+  checksum             String
+  uploadStatus         String    @default("UPLOADED")
+  processingStatus     String    @default("READY")
+  publicStatus         String    @default("PRIVATE")
+  failureCode          String?
+  failureMessage       String?
+  altText              String    @default("")
+  caption              String    @default("")
+  focalPointX          Float     @default(0.5)
+  focalPointY          Float     @default(0.5)
+  variantsJson         String    @default("{}")
+  usageCount           Int       @default(0)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  deletedAt            DateTime?
+
+  site  Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([siteId, processingStatus])
+  @@index([siteId, mediaType])
+  @@index([uploadStatus])
+  @@index([ownerId, createdAt])
+  @@index([publicStatus])
+}
+
+model SitePublication {
+  id                 String    @id @default(uuid())
+  siteId             String
+  versionNumber      Int
+  status             String    @default("BUILDING")
+  publishedBy        String
+  publishedAt        DateTime?
+  sourceDraftVersion Int       @default(1)
+  contentManifest    String
+  assetManifest      String
+  publicAddress      String
+  buildStartedAt     DateTime?
+  buildCompletedAt   DateTime?
+  failureCode        String?
+  failureMessage     String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  site      Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  publisher User @relation(fields: [publishedBy], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, versionNumber])
+  @@index([siteId, status])
+  @@index([publicAddress])
+}
+
+model StoreInquiry {
+  id                     String    @id @default(uuid())
+  userId                 String
+  domain                 String
+  productId              String?
+  customerName           String    @default("")
+  customerEmail          String    @default("")
+  customerPhone          String    @default("")
+  productName            String    @default("")
+  productPaymentLinkUrl  String?
+  message                String
+  quantity               Int       @default(1)
+  fulfillmentPreference  String    @default("")
+  status                 String    @default("new")
+  ownerReply             String    @default("")
+  replyProvider          String?
+  replyProviderMessageId String?
+  replyStatus            String?
+  repliedAt              DateTime?
+  convertedAt            DateTime?
+  orderRequestNote       String    @default("")
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, domain, createdAt])
+  @@index([domain, createdAt])
+  @@index([status, createdAt])
+}
+
+model StoreNotification {
+  id                    String    @id @default(uuid())
+  userId                String
+  domain                String
+  type                  String
+  title                 String
+  body                  String
+  status                String    @default("unread")
+  relatedInquiryId      String?
+  relatedOrderRequestId String?
+  createdAt             DateTime  @default(now())
+  readAt                DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, domain, createdAt])
+  @@index([userId, status, createdAt])
+}
+
+model StoreOrderRequest {
+  id                     String    @id @default(uuid())
+  userId                 String
+  domain                 String
+  inquiryId              String?
+  productId              String?
+  customerName           String    @default("")
+  customerEmail          String    @default("")
+  customerPhone          String    @default("")
+  productName            String    @default("")
+  paymentMode            String    @default("contact")
+  paymentLinkUrl         String?
+  paymentStatus          String    @default("not_requested")
+  paidAt                 DateTime?
+  walletPaymentStatus    String    @default("not_started")
+  walletPaymentId        String?
+  buyerWalletUserId      String?
+  sellerWalletUserId     String?
+  walletPaidAt           DateTime?
+  walletRefundedAt       DateTime?
+  message                String
+  quantity               Int       @default(1)
+  fulfillmentPreference  String    @default("")
+  note                   String    @default("")
+  status                 String    @default("requested")
+  totalCents             Int       @default(0)
+  currency               String    @default("USD")
+  sellerReply            String    @default("")
+  replyProvider          String?
+  replyProviderMessageId String?
+  replyStatus            String?
+  repliedAt              DateTime?
+  inventoryApplied       Boolean   @default(false)
+  statusTimelineJson     String    @default("[]")
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, domain, createdAt])
+  @@index([userId, status, createdAt])
+  @@index([inquiryId])
+}
+
+model StoreEmailMessage {
+  id                String   @id @default(uuid())
+  userId            String
+  domain            String
+  orderRequestId    String?
+  inquiryId         String?
+  direction         String
+  fromEmail         String
+  toEmail           String
+  subject           String   @default("")
+  bodyText          String
+  bodyHtml          String?
+  provider          String
+  providerMessageId String?
+  status            String
+  createdAt         DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, domain, createdAt])
+  @@index([orderRequestId, createdAt])
+  @@index([inquiryId, createdAt])
+  @@index([providerMessageId])
+}
+
+model StoreAnalyticsEvent {
+  id        String   @id @default(uuid())
+  userId    String
+  domain    String
+  eventType String
+  productId String?
+  metadata  String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, domain, createdAt])
+  @@index([domain, eventType, createdAt])
+  @@index([productId, createdAt])
+}
+
+// ---------- Financial ledger core ------------------------------------------
+//
+// `accounts.balance` and `accounts.available_balance` remain as cached
+// projections for now. The ledger tables below are the source of truth.
+
+model LedgerAccount {
+  id                   String   @id
+  userId               String?  @map("user_id")
+  balance              Int      @default(0)
+  availableBalance     Int      @default(0) @map("available_balance")
+  pendingBalance       Int      @default(0) @map("pending_balance")
+  currency             String   @default("USD")
+  status               String   @default("active")
+  allowNegativeBalance Boolean  @default(false) @map("allow_negative_balance")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  transactions    LedgerTransaction[]
+  entries         LedgerEntry[]
+  reconciliations LedgerReconciliation[]
+
+  @@index([userId])
+  @@map("accounts")
+}
+
+model LedgerTransaction {
+  id                     String    @id @default(uuid())
+  accountId              String    @map("account_id")
+  type                   String
+  status                 String    @default("posted")
+  amountCents            Int       @map("amount_cents")
+  currency               String    @default("USD")
+  externalId             String?   @unique @map("external_id")
+  unitTxId               String?   @unique @map("unit_tx_id")
+  stripeId               String?   @unique @map("stripe_id")
+  reverseOfTransactionId String?   @map("reverse_of_transaction_id")
+  metadataJson           String?   @map("metadata_json")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  postedAt               DateTime? @map("posted_at")
+  reversedAt             DateTime? @map("reversed_at")
+
+  account LedgerAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  entries LedgerEntry[]
+
+  @@index([accountId, createdAt])
+  @@index([type, createdAt])
+  @@index([reverseOfTransactionId])
+  @@map("ledger_transactions")
+}
+
+model LedgerEntry {
+  id            String   @id @default(uuid())
+  transactionId String   @map("transaction_id")
+  accountId     String   @map("account_id")
+  direction     String
+  amountCents   Int      @map("amount_cents")
+  balanceBucket String   @default("available") @map("balance_bucket")
+  status        String   @default("posted")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  transaction LedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  account     LedgerAccount     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([accountId, balanceBucket, status])
+  @@index([transactionId])
+  @@map("ledger_entries")
+}
+
+model LedgerReconciliation {
+  id                        String   @id @default(uuid())
+  accountId                 String   @map("account_id")
+  cachedBalance             Int      @map("cached_balance")
+  cachedAvailableBalance    Int      @map("cached_available_balance")
+  projectedBalance          Int      @map("projected_balance")
+  projectedAvailableBalance Int      @map("projected_available_balance")
+  projectedPendingBalance   Int      @map("projected_pending_balance")
+  mismatchCents             Int      @map("mismatch_cents")
+  action                    String
+  severity                  String
+  detailsJson               String?  @map("details_json")
+  createdAt                 DateTime @default(now()) @map("created_at")
+
+  account LedgerAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([accountId, createdAt])
+  @@index([severity, createdAt])
+  @@map("ledger_reconciliations")
+}
+
 // ---------- Existing models (untouched) -------------------------------------
 
 model Storefront {
-  id          String   @id @default(uuid())
-  ownerId     String
-  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  name        String
-  slug        String   @unique
-  description String
-  category    String
-  tagline     String?
-  published   Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                    String    @id @default(uuid())
+  ownerId               String
+  owner                 User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name                  String
+  handle                String    @unique
+  slug                  String    @unique
+  logoUrl               String?
+  bannerUrl             String?
+  announcement          String?
+  description           String
+  sellerStory           String?
+  category              String
+  location              String?
+  tagline               String?
+  shippingSettingsJson  String?
+  paymentStatus         String    @default("pending")
+  paymentsReady         Boolean   @default(false)
+  paymentsEnabled       Boolean   @default(false)
+  stripeConnectStatus   String    @default("not_started")
+  defaultPaymentMode    String    @default("contact")
+  defaultPaymentLinkUrl String?
+  policiesReady         Boolean   @default(false)
+  status                String    @default("draft")
+  published             Boolean   @default(false)
+  searchable            Boolean   @default(false)
+  publicVisible         Boolean   @default(false)
+  launchedAt            DateTime?
+  setupCompleted        Boolean   @default(false)
+  setupCompletedAt      DateTime?
+  setupVersion          String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   products    StorefrontProduct[]
   collections StorefrontCollection[]
@@ -137,54 +1003,241 @@ model Storefront {
   assets      StorefrontAsset[]
   generated   StorefrontGeneratedContent[]
   orders      Order[]
+  policy      StorePolicy?
 }
 
 model StorefrontProduct {
+  id                String            @id @default(uuid())
+  storefrontId      String
+  storefront        Storefront        @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  name              String
+  description       String
+  price             String
+  imageUrl          String?
+  inventory         Int               @default(0)
+  trackInventory    Boolean           @default(true)
+  lowStockThreshold Int               @default(3)
+  paymentMode       String            @default("contact")
+  paymentLinkUrl    String?
+  category          String?
+  tagsJson          String?
+  imageUrlsJson     String?
+  variantsJson      String?
+  shippingInfo      String?
+  returnEligible    Boolean           @default(true)
+  isSubscription    Boolean           @default(false)
+  featured          Boolean           @default(false)
+  published         Boolean           @default(false)
+  currency          String            @default("USD")
+  publishedAt       DateTime?
+  status            String            @default("draft")
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  stripePriceId     String?
+  images            ProductImage[]
+  orderItems        OrderItem[]
+  ads               Ad[]
+  avatarContent     AIAvatarContent[]
+  scheduledLives    ScheduledLive[]
+}
+
+model ProductImage {
+  id           String   @id @default(uuid())
+  productId    String
+  storeId      String
+  sellerId     String
+  storageKey   String
+  url          String
+  thumbnailUrl String?
+  width        Int?
+  height       Int?
+  contentType  String
+  fileSize     Int
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  product StorefrontProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, sortOrder])
+  @@index([storeId])
+  @@index([sellerId])
+}
+
+model StorePolicy {
   id             String     @id @default(uuid())
-  storefrontId   String
+  storefrontId   String     @unique
   storefront     Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
-  name           String
-  description    String
-  price          String
-  imageUrl       String?
-  isSubscription Boolean    @default(false)
-  featured       Boolean    @default(false)
-  published      Boolean    @default(true)
-  stripePriceId  String?
-  orderItems     OrderItem[]
-  ads            Ad[]
-  avatarContent  AIAvatarContent[]
-  scheduledLives ScheduledLive[]
+  returns        String?
+  refunds        String?
+  processingTime String?
+  shipping       String?
+  support        String?
 }
 
 model Order {
-  id               String      @id @default(uuid())
-  userId           String
-  storeId          String?
-  total            Float
-  status           String
-  stripeCheckoutId String?     @unique
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  id                        String   @id @default(uuid())
+  userId                    String
+  storeId                   String?
+  sellerId                  String?
+  paymentIntentId           String?
+  currency                  String   @default("USD")
+  total                     Float
+  status                    String
+  paymentStatus             String   @default("created")
+  payoutStatus              String   @default("not_eligible")
+  subtotalMinor             Int      @default(0)
+  discountAmountMinor       Int      @default(0)
+  shippingAmountMinor       Int      @default(0)
+  taxAmountMinor            Int      @default(0)
+  customerTotalMinor        Int      @default(0)
+  paymentProcessingFeeMinor Int      @default(0)
+  oneWayPlatformFeeMinor    Int      @default(0)
+  sellerGrossAmountMinor    Int      @default(0)
+  sellerNetAmountMinor      Int      @default(0)
+  refundedAmountMinor       Int      @default(0)
+  disputedAmountMinor       Int      @default(0)
+  payoutAmountMinor         Int      @default(0)
+  feeConfigSnapshotJson     String?
+  idempotencyKey            String?  @unique
+  stripeCheckoutId          String?  @unique
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
 
-  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  store  Storefront? @relation(fields: [storeId], references: [id], onDelete: SetNull)
-  items  OrderItem[]
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store Storefront? @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  items OrderItem[]
 
   @@index([userId, createdAt])
   @@index([storeId, createdAt])
+  @@index([sellerId, createdAt])
+  @@index([paymentStatus])
+  @@index([payoutStatus])
+}
+
+model ShopConversation {
+  id               String    @id @default(uuid())
+  shopId           String    @map("shop_id")
+  buyerId          String    @map("buyer_id")
+  sellerId         String    @map("seller_id")
+  productId        String?   @map("product_id")
+  orderId          String?   @map("order_id")
+  customRequestId  String?   @map("custom_request_id")
+  conversationType String    @map("conversation_type")
+  status           String    @default("open")
+  mutedByJson      String    @default("[]") @map("muted_by_json")
+  archivedByJson   String    @default("[]") @map("archived_by_json")
+  deletedByJson    String    @default("[]") @map("deleted_by_json")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  lastMessageAt    DateTime  @default(now()) @map("last_message_at")
+  closedAt         DateTime? @map("closed_at")
+
+  messages ShopMessage[]
+  reads    ShopConversationRead[]
+
+  @@index([buyerId, updatedAt])
+  @@index([sellerId, updatedAt])
+  @@index([shopId, updatedAt])
+  @@index([productId])
+  @@index([orderId])
+  @@index([conversationType, status])
+  @@map("shop_conversations")
+}
+
+model ShopMessage {
+  id                 String    @id @default(uuid())
+  conversationId     String    @map("shop_conversation_id")
+  senderId           String    @map("sender_id")
+  senderRole         String    @map("sender_role")
+  recipientId        String    @map("recipient_id")
+  bodyEncrypted      String    @map("body_encrypted")
+  messageType        String    @default("userMessage") @map("message_type")
+  attachmentMetadata String?   @map("attachment_metadata")
+  clientMessageId    String    @map("client_message_id")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  editedAt           DateTime? @map("edited_at")
+  deletedAt          DateTime? @map("deleted_at")
+
+  conversation ShopConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, clientMessageId])
+  @@index([conversationId, createdAt])
+  @@index([senderId, createdAt])
+  @@map("shop_messages")
+}
+
+model ShopConversationRead {
+  conversationId    String   @map("conversation_id")
+  userId            String   @map("user_id")
+  lastReadMessageId String?  @map("last_read_message_id")
+  lastReadAt        DateTime @default(now()) @map("last_read_at")
+
+  conversation ShopConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@index([userId, lastReadAt])
+  @@map("shop_conversation_reads")
+}
+
+model ShopBlockedUser {
+  userId        String   @map("user_id")
+  blockedUserId String   @map("blocked_user_id")
+  scope         String   @default("shop")
+  blockedAt     DateTime @default(now()) @map("blocked_at")
+
+  @@id([userId, blockedUserId])
+  @@index([blockedUserId])
+  @@map("shop_blocked_users")
+}
+
+model ShopMessageSettings {
+  userId                       String   @id @map("user_id")
+  sellerPermission             String   @default("Anyone") @map("seller_permission")
+  buyerPermission              String   @default("Sellers I contacted") @map("buyer_permission")
+  allowProductQuestions        Boolean  @default(true) @map("allow_product_questions")
+  allowCustomRequests          Boolean  @default(true) @map("allow_custom_requests")
+  allowOrderOnlyMessages       Boolean  @default(true) @map("allow_order_only_messages")
+  allowPromotionalMessages     Boolean  @default(false) @map("allow_promotional_messages")
+  allowMessagesFromNewAccounts Boolean  @default(true) @map("allow_messages_from_new_accounts")
+  sellerAllowAttachments       Boolean  @default(true) @map("seller_allow_attachments")
+  sellerAllowLinks             Boolean  @default(false) @map("seller_allow_links")
+  autoCloseInactive            Boolean  @default(false) @map("auto_close_inactive")
+  requireOrderNumberForSupport Boolean  @default(false) @map("require_order_number_for_support")
+  buyerAllowAttachments        Boolean  @default(true) @map("buyer_allow_attachments")
+  buyerAllowLinks              Boolean  @default(false) @map("buyer_allow_links")
+  showReadReceipts             Boolean  @default(false) @map("show_read_receipts")
+  showTypingIndicator          Boolean  @default(true) @map("show_typing_indicator")
+  showActivityStatus           Boolean  @default(false) @map("show_activity_status")
+  updatedAt                    DateTime @updatedAt @map("updated_at")
+
+  @@map("shop_message_settings")
+}
+
+model MarketplaceFeeConfiguration {
+  id                      String   @id @default(uuid())
+  feeType                 String   @default("FIXED")
+  feeAmountMinor          Int      @default(30)
+  currency                String   @default("USD")
+  active                  Boolean  @default(true)
+  effectiveDate           DateTime @default(now())
+  refundBehavior          String   @default("FULL_BEFORE_FULFILLMENT_REVERSE_PARTIAL_RETAIN")
+  minimumOrderAmountMinor Int      @default(100)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([active, currency, effectiveDate])
 }
 
 model OrderItem {
-  id        String            @id @default(uuid())
+  id        String  @id @default(uuid())
   orderId   String
   productId String?
   name      String
-  quantity  Int               @default(1)
+  quantity  Int     @default(1)
   unitPrice Float
   imageUrl  String?
 
-  order   Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order   Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product StorefrontProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
@@ -201,66 +1254,66 @@ model Recording {
 }
 
 model AIAvatar {
-  id           String            @id @default(uuid())
-  name         String
-  personality  String
-  voiceType    String
-  niche        String
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
+  id          String   @id @default(uuid())
+  name        String
+  personality String
+  voiceType   String
+  niche       String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  content      AIAvatarContent[]
-  scheduled    ScheduledLive[]
+  content   AIAvatarContent[]
+  scheduled ScheduledLive[]
 }
 
 model AIAvatarContent {
-  id          String            @id @default(uuid())
-  avatarId    String
-  productId   String?
-  hook        String
-  script      String
-  caption     String
-  videoUrl    String?
-  status      String            @default("draft")
-  postedAt    DateTime?
-  createdAt   DateTime          @default(now())
+  id        String    @id @default(uuid())
+  avatarId  String
+  productId String?
+  hook      String
+  script    String
+  caption   String
+  videoUrl  String?
+  status    String    @default("draft")
+  postedAt  DateTime?
+  createdAt DateTime  @default(now())
 
-  avatar      AIAvatar          @relation(fields: [avatarId], references: [id], onDelete: Cascade)
-  product     StorefrontProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  avatar  AIAvatar           @relation(fields: [avatarId], references: [id], onDelete: Cascade)
+  product StorefrontProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([avatarId, createdAt])
   @@index([productId, createdAt])
 }
 
 model ScheduledLive {
-  id              String             @id @default(uuid())
-  avatarId        String
-  productId       String?
-  title           String
-  scheduledFor    DateTime
-  status          String             @default("scheduled")
-  viewerCount     Int                @default(0)
-  createdAt       DateTime           @default(now())
+  id           String   @id @default(uuid())
+  avatarId     String
+  productId    String?
+  title        String
+  scheduledFor DateTime
+  status       String   @default("scheduled")
+  viewerCount  Int      @default(0)
+  createdAt    DateTime @default(now())
 
-  avatar          AIAvatar           @relation(fields: [avatarId], references: [id], onDelete: Cascade)
-  product         StorefrontProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  avatar  AIAvatar           @relation(fields: [avatarId], references: [id], onDelete: Cascade)
+  product StorefrontProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([scheduledFor])
   @@index([avatarId, scheduledFor])
 }
 
 model Ad {
-  id            String            @id @default(uuid())
-  productId     String
-  budget        Float
-  clicks        Int               @default(0)
-  impressions   Int               @default(0)
-  featured      Boolean           @default(false)
-  active        Boolean           @default(true)
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
+  id          String   @id @default(uuid())
+  productId   String
+  budget      Float
+  clicks      Int      @default(0)
+  impressions Int      @default(0)
+  featured    Boolean  @default(false)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  product       StorefrontProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product StorefrontProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([productId, createdAt])
   @@index([active, featured])
@@ -302,70 +1355,189 @@ model StorefrontGeneratedContent {
 }
 
 model Conversation {
-  id           String                    @id @default(uuid())
-  type         String
-  title        String?
-  createdAt    DateTime                  @default(now())
-  updatedAt    DateTime                  @updatedAt
-  participants ConversationParticipant[]
-  messages     Message[]
+  id                        String                    @id @default(uuid())
+  type                      String
+  title                     String?
+  externalTargetHash        String?
+  externalTargetCiphertext  String?
+  expirationMode            String                    @default("off")
+  expirationDurationSeconds Int?
+  allowForwarding           Boolean                   @default(true)
+  allowCopying              Boolean                   @default(true)
+  allowSavingAttachments    Boolean                   @default(true)
+  privacySettingsVersion    Int                       @default(1)
+  createdAt                 DateTime                  @default(now())
+  updatedAt                 DateTime                  @updatedAt
+  participants              ConversationParticipant[]
+  messages                  Message[]
+
+  @@index([type, externalTargetHash])
 }
 
 model ConversationParticipant {
   userId         String
   conversationId String
-  role           String        @default("member")
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String       @default("member")
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@id([userId, conversationId])
 }
 
 model Message {
-  id             String              @id @default(uuid())
-  conversationId String
-  senderId       String
-  ciphertext     String
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
-  conversation   Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  attachments    MessageAttachment[]
-  receipts       MessageReceipt[]
+  id                        String              @id @default(uuid())
+  conversationId            String
+  senderId                  String
+  ciphertext                String
+  expirationMode            String              @default("off")
+  expirationDurationSeconds Int?
+  readAt                    DateTime?
+  expiresAt                 DateTime?
+  deletedAt                 DateTime?
+  deletionReason            String?
+  tombstoneVersion          Int                 @default(0)
+  attachmentExpirationState String              @default("active")
+  createdAt                 DateTime            @default(now())
+  updatedAt                 DateTime            @updatedAt
+  conversation              Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  attachments               MessageAttachment[]
+  receipts                  MessageReceipt[]
+
+  @@index([expiresAt, deletedAt])
 }
 
 model MessageAttachment {
-  id        String   @id @default(uuid())
+  id        String  @id @default(uuid())
   messageId String
   url       String
   mimeType  String
-  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
 }
 
 model MessageReceipt {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   messageId String
   userId    String
   status    String
-  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  readAt    DateTime?
+  expiresAt DateTime?
+  deletedAt DateTime?
+  message   Message   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId, readAt])
+  @@index([userId, status])
+}
+
+model AccountBurnRequest {
+  id                         String                       @id @default(uuid())
+  userId                     String
+  status                     String                       @default("requested")
+  requestedAt                DateTime                     @default(now())
+  scheduledFor               DateTime
+  authenticationMethod       String
+  immediateBurn              Boolean                      @default(false)
+  exportRequested            Boolean                      @default(false)
+  completedAt                DateTime?
+  failureSummary             String?
+  legalHoldStatus            String                       @default("none")
+  cancelledAt                DateTime?
+  recoveryTokenHash          String?
+  backupDeletionScheduledFor DateTime?
+  steps                      AccountBurnStep[]
+  retentionRecords           AccountBurnRetentionRecord[]
+  auditLog                   AccountBurnAuditLog[]
+  exports                    AccountBurnExport[]
+
+  @@index([userId, status])
+  @@index([status, scheduledFor])
+}
+
+model AccountBurnStep {
+  id            String             @id @default(uuid())
+  burnRequestId String
+  subsystem     String
+  status        String             @default("pending")
+  startedAt     DateTime?
+  completedAt   DateTime?
+  retryCount    Int                @default(0)
+  errorCode     String?
+  errorSummary  String?
+  request       AccountBurnRequest @relation(fields: [burnRequestId], references: [id], onDelete: Cascade)
+
+  @@unique([burnRequestId, subsystem])
+  @@index([status, startedAt])
+}
+
+model AccountBurnRetentionRecord {
+  id            String             @id @default(uuid())
+  burnRequestId String
+  subsystem     String
+  recordType    String
+  legalBasis    String
+  retainUntil   DateTime?
+  restrictedAt  DateTime           @default(now())
+  request       AccountBurnRequest @relation(fields: [burnRequestId], references: [id], onDelete: Cascade)
+
+  @@index([burnRequestId, subsystem])
+}
+
+model AccountBurnAuditLog {
+  id            String             @id @default(uuid())
+  burnRequestId String
+  event         String
+  detailsJson   String             @default("{}")
+  createdAt     DateTime           @default(now())
+  request       AccountBurnRequest @relation(fields: [burnRequestId], references: [id], onDelete: Cascade)
+
+  @@index([burnRequestId, createdAt])
+}
+
+model AccountBurnExport {
+  id            String             @id @default(uuid())
+  burnRequestId String
+  status        String             @default("not_requested")
+  storageKey    String?
+  expiresAt     DateTime?
+  completedAt   DateTime?
+  request       AccountBurnRequest @relation(fields: [burnRequestId], references: [id], onDelete: Cascade)
+
+  @@index([burnRequestId, status])
 }
 
 model Community {
-  id          String           @id @default(uuid())
-  ownerId     String
-  name        String
-  description String
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  members     CommunityMember[]
-  groups      CommunityGroup[]
+  id                 String             @id @default(uuid())
+  ownerId            String
+  name               String
+  normalizedName     String             @default("")
+  description        String
+  creatorHandle      String             @default("@oneway")
+  visibility         String             @default("public")
+  blockedUserIdsJson String             @default("[]")
+  bannedUserIdsJson  String             @default("[]")
+  deletedAt          DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  members            CommunityMember[]
+  groups             CommunityGroup[]
+  messages           CommunityMessage[]
+
+  @@index([normalizedName, visibility])
+  @@index([visibility, deletedAt])
 }
 
 model CommunityMember {
   id          String    @id @default(uuid())
   communityId String
   userId      String
-  role        String
+  displayName String    @default("OneWay User")
+  handle      String    @default("@oneway")
+  role        String    @default("member")
+  createdAt   DateTime  @default(now())
   community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, userId])
+  @@index([communityId])
+  @@index([userId])
 }
 
 model CommunityGroup {
@@ -376,14 +1548,21 @@ model CommunityGroup {
   community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
 }
 
-/// Legacy in-memory call session model. Kept for backward-compat with any
-/// scripts that reference it; superseded by the new `Call` table.
-model CallSession {
-  id        String   @id @default(uuid())
-  callerId  String
-  calleeId  String
-  type      String
-  state     String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model CommunityMessage {
+  id                String    @id @default(uuid())
+  clientMessageId   String?   @unique
+  communityId       String
+  senderId          String
+  senderHandle      String
+  senderDisplayName String
+  body              String
+  status            String    @default("sent")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  community         Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@index([communityId])
+  @@index([communityId, createdAt])
+  @@index([createdAt])
+  @@index([senderId])
 }

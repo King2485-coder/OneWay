@@ -1,0 +1,18 @@
+tunnel: d6d59b96-4067-4314-a86a-69ab652c7d53
+credentials-file: /etc/cloudflared/credentials.json
+protocol: quic
+metrics: 0.0.0.0:2000
+loglevel: info
+
+ingress:
+  - hostname: api.oneway.app
+    service: http://api:3000
+    originRequest:
+      connectTimeout: 10s
+      httpHostHeader: api.oneway.app
+  - hostname: api.oneway.is
+    service: http://api:3000
+    originRequest:
+      connectTimeout: 10s
+      httpHostHeader: api.oneway.is
+  - service: http_status:404

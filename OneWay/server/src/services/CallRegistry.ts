@@ -1,7 +1,7 @@
 import { EventEmitter } from "events";
 import { randomUUID } from "crypto";
 import type { CallSession, CallStatus } from "../types/calls";
-import { sanitizeRoomName } from "../types/calls";
+import { normalizeUserIdForCompare, sameUserId, sanitizeRoomName } from "../types/calls";
 
 /**
  * In-memory store of every active CallSession. Single source of truth for
@@ -31,6 +31,7 @@ export interface ICallRegistry {
   get(callId: string): CallSession | undefined;
   findByRoom(roomName: string): CallSession | undefined;
   activeForUser(userId: string): CallSession[];
+  callsForUser(userId: string): CallSession[];
   updateStatus(callId: string, status: CallStatus, mutator?: (call: CallSession) => void): CallSession;
   addParticipant(callId: string, userId: string): CallSession;
   removeCall(callId: string): void;
@@ -55,28 +56,37 @@ export class CallRegistry extends EventEmitter implements ICallRegistry {
     turnEnabled: boolean;
   }): CallSession {
     const callId = randomUUID();
-    // Room name combines both identities so even if the same caller-callee
-    // pair places back-to-back calls, they each get a unique room.
-    const roomName = sanitizeRoomName(`${args.callerId}-${args.calleeId}-${callId.slice(0, 8)}`);
+    // OneWay controls room naming server-side; clients never pick arbitrary
+    // LiveKit rooms for network calls.
+    const roomName = sanitizeRoomName(`ow-call-${callId}`);
     const now = Date.now();
     const call: CallSession = {
       callId,
+      id: callId,
       roomName,
       callerId: args.callerId,
       calleeId: args.calleeId,
+      callerUserId: args.callerId,
+      recipientUserId: args.calleeId,
+      type: args.hasVideo ? "video" : "audio",
       status: "ringing",
       hasVideo: args.hasVideo,
+      callerIdentity: `oneway-user-${args.callerId.toLowerCase()}`,
+      recipientIdentity: `oneway-user-${args.calleeId.toLowerCase()}`,
       createdAt: now,
+      updatedAt: now,
+      version: 1,
       turnEnabled: args.turnEnabled,
       participants: [],
     };
     this.setCall(call);
     this.armRingTimeout(callId);
+    this.emit("call:changed", call);
     return call;
   }
 
   get(callId: string): CallSession | undefined {
-    return this.calls.get(callId);
+    return this.calls.get(normalizeCallId(callId));
   }
 
   /** Look up by LiveKit room name. Linear scan; fine at typical concurrency. */
@@ -89,7 +99,7 @@ export class CallRegistry extends EventEmitter implements ICallRegistry {
 
   /** Active = anything not in a terminal state (ended/missed/declined/failed). */
   activeForUser(userId: string): CallSession[] {
-    const ids = this.byUser.get(userId);
+    const ids = this.byUser.get(normalizeUserIdForCompare(userId));
     if (!ids) return [];
     const out: CallSession[] = [];
     for (const id of ids) {
@@ -101,16 +111,37 @@ export class CallRegistry extends EventEmitter implements ICallRegistry {
     return out;
   }
 
+  callsForUser(userId: string): CallSession[] {
+    const ids = this.byUser.get(normalizeUserIdForCompare(userId));
+    if (!ids) return [];
+    const out: CallSession[] = [];
+    for (const id of ids) {
+      const call = this.calls.get(id);
+      if (call) out.push(call);
+    }
+    return out;
+  }
+
   /** Mutate a call. Returns the new value. Throws if it's already terminal. */
   updateStatus(callId: string, status: CallStatus, mutator?: (call: CallSession) => void): CallSession {
-    const call = this.calls.get(callId);
+    const normalizedCallId = normalizeCallId(callId);
+    const call = this.calls.get(normalizedCallId);
     if (!call) throw new RegistryError("not_found", "call not found");
     if (isTerminal(call.status) && status !== call.status) {
       throw new RegistryError("already_terminal", `call already ${call.status}`);
     }
     call.status = status;
+    call.updatedAt = Date.now();
+    call.version = (call.version ?? 1) + 1;
     if (status === "accepted" && call.acceptedAt === undefined) {
       call.acceptedAt = Date.now();
+    }
+    if (status === "accepting" && call.recipientAcceptedAt === undefined) {
+      call.acceptedAt = call.acceptedAt ?? Date.now();
+      call.recipientAcceptedAt = Date.now();
+    }
+    if (status === "connected" && call.connectedAt === undefined) {
+      call.connectedAt = Date.now();
     }
     if (isTerminal(status) && call.endedAt === undefined) {
       call.endedAt = Date.now();
@@ -130,8 +161,9 @@ export class CallRegistry extends EventEmitter implements ICallRegistry {
   }
 
   addParticipant(callId: string, userId: string): CallSession {
-    return this.updateStatus(callId, this.calls.get(callId)?.status ?? "ringing", (call) => {
-      if (!call.participants.includes(userId)) {
+    const normalizedCallId = normalizeCallId(callId);
+    return this.updateStatus(normalizedCallId, this.calls.get(normalizedCallId)?.status ?? "ringing", (call) => {
+      if (!call.participants.some((participant) => sameUserId(participant, userId))) {
         call.participants.push(userId);
       }
     });
@@ -140,13 +172,14 @@ export class CallRegistry extends EventEmitter implements ICallRegistry {
   /** Hard-remove a call regardless of state. Use sparingly — prefer
    *  `updateStatus(..., "ended")` so observers see the transition. */
   removeCall(callId: string): void {
-    const call = this.calls.get(callId);
+    const normalizedCallId = normalizeCallId(callId);
+    const call = this.calls.get(normalizedCallId);
     if (!call) return;
-    this.disarm(callId);
-    this.calls.delete(callId);
-    this.removeFromUserIndex(call.callerId, callId);
-    this.removeFromUserIndex(call.calleeId, callId);
-    for (const p of call.participants) this.removeFromUserIndex(p, callId);
+    this.disarm(normalizedCallId);
+    this.calls.delete(normalizedCallId);
+    this.removeFromUserIndex(call.callerId, normalizedCallId);
+    this.removeFromUserIndex(call.calleeId, normalizedCallId);
+    for (const p of call.participants) this.removeFromUserIndex(p, normalizedCallId);
     this.emit("call:removed", call);
   }
 
@@ -160,19 +193,21 @@ export class CallRegistry extends EventEmitter implements ICallRegistry {
   }
 
   private indexUser(userId: string, callId: string): void {
-    let set = this.byUser.get(userId);
+    const key = normalizeUserIdForCompare(userId);
+    let set = this.byUser.get(key);
     if (!set) {
       set = new Set();
-      this.byUser.set(userId, set);
+      this.byUser.set(key, set);
     }
     set.add(callId);
   }
 
   private removeFromUserIndex(userId: string, callId: string): void {
-    const set = this.byUser.get(userId);
+    const key = normalizeUserIdForCompare(userId);
+    const set = this.byUser.get(key);
     if (!set) return;
     set.delete(callId);
-    if (set.size === 0) this.byUser.delete(userId);
+    if (set.size === 0) this.byUser.delete(key);
   }
 
   private armRingTimeout(callId: string): void {
@@ -207,4 +242,8 @@ export class RegistryError extends Error {
 
 export function isTerminal(status: CallStatus): boolean {
   return status === "ended" || status === "declined" || status === "missed" || status === "failed";
+}
+
+function normalizeCallId(callId: string): string {
+  return callId.toLowerCase();
 }

@@ -74,9 +74,75 @@ OneWay/
 
 ## One-time deploy
 
-Pre-reqs: Ubuntu 22.04+ with Docker installed, a domain pointed at the box
-(`api.oneway.app`), and Let's Encrypt certs already provisioned for that
-hostname (`certbot --nginx -d api.oneway.app`).
+Pre-reqs: Ubuntu 22.04+ with Docker installed, the production hosts pointed at
+the box (`oneway.is`, `www.oneway.is`, and `api.oneway.is`), and TLS certs
+already provisioned for those hostnames.
+
+## Public website (oneway.is) for Twilio A2P review
+
+This backend also serves a public, compliance-oriented site from the same app
+process, intended to satisfy Twilio A2P 10DLC "unverifiable website / CTA"
+rejections. The pages are:
+
+```text
+https://oneway.is/
+https://oneway.is/about
+https://oneway.is/contact
+https://oneway.is/support
+https://oneway.is/delete-account
+https://oneway.is/privacy
+https://oneway.is/terms
+https://oneway.is/sms-consent
+```
+
+### Cloudflare 522 (origin timed out)
+
+If Cloudflare returns `522`, it cannot connect to your origin on port 443. Fix
+the origin first (this is infrastructure, not app code):
+
+1. Ensure nginx is running and listening on 443:
+
+```bash
+sudo ss -lntp | rg \":443\"
+docker compose ps
+```
+
+2. Ensure inbound TCP 80 and 443 are allowed by your firewall/security-group.
+
+3. Provision certs for both hostnames:
+
+```bash
+sudo certbot --nginx -d oneway.is -d www.oneway.is
+sudo certbot --nginx -d api.oneway.is
+```
+
+4. Bring up nginx (edge profile) so the origin actually serves 443:
+
+```bash
+docker compose --profile edge up -d --build
+docker compose logs -f nginx
+```
+
+5. Verify from the origin itself:
+
+```bash
+curl -I  http://127.0.0.1/health
+curl -Ik https://127.0.0.1/health
+curl -Ik https://127.0.0.1/sms-consent
+curl -Ik https://127.0.0.1/delete-account
+```
+
+6. Verify from the public internet:
+
+```bash
+curl -I https://oneway.is/
+curl -I https://oneway.is/sms-consent
+```
+
+Cloudflare SSL mode guidance:
+- "Full (strict)" requires a valid origin certificate for `oneway.is`.
+- If you use a Cloudflare Origin Certificate instead of Let's Encrypt, install
+  it on the origin and update nginx cert paths accordingly.
 
 ```bash
 # 1. Get the code
@@ -99,11 +165,11 @@ docker compose logs -f api
 docker compose logs -f nginx
 
 # 6. Verify health from outside.
-curl https://api.oneway.app/health
+curl https://api.oneway.is/health
 # → {"ok":true}
 
 # 7. Verify auth.
-curl -X POST https://api.oneway.app/api/auth/register \
+curl -X POST https://api.oneway.is/api/auth/register \
   -H 'Content-Type: application/json' \
   -d '{"email":"king@oneway.app","password":"correct horse battery"}'
 # → {"token":"eyJ...","user":{...}}
@@ -131,7 +197,8 @@ first — `migrate deploy` is non-interactive and won't reset data.
 ## Final test checklist
 
 These are the smoke tests for the production stack. Run them from a clean
-build of the iOS app pointed at `https://api.oneway.app`.
+build of the iOS app pointed at `https://api.oneway.is` and call signaling on
+`wss://api.oneway.is/ws/calls`.
 
 ```text
 1.  Register two accounts (User A, User B) via /api/auth/register.
