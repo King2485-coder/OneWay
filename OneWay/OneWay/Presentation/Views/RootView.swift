@@ -15,6 +15,8 @@ struct RootView: View {
     @State private var selectedTab: RootTab = .chats
     @State private var tabOrder: [RootTab] = RootTab.allCases
     @State private var hasLoadedTabOrder = false
+    @State private var isSentinelPresented = false
+    @State private var isSentinelLockingDown = false
 
     var body: some View {
         ZStack {
@@ -81,6 +83,45 @@ struct RootView: View {
                 environment.accountDeletionScheduler.cancel()
             }
 
+            VStack {
+                HStack {
+                    Spacer()
+                    Button {
+                        isSentinelPresented = true
+                    } label: {
+                        ZStack {
+                            Circle()
+                                .fill(.ultraThinMaterial)
+                                .frame(width: 48, height: 48)
+                                .overlay(Circle().stroke(Theme.divider, lineWidth: 1))
+                            Image(systemName: "shield.checkered")
+                                .font(.system(size: 22, weight: .bold))
+                                .foregroundStyle(.green)
+                        }
+                    }
+                    .accessibilityLabel("Open OneWay Sentinel")
+                    .padding(.trailing, 14)
+                    .padding(.top, 8)
+                }
+                Spacer()
+            }
+            .zIndex(8)
+
+            if isSentinelLockingDown {
+                Color.black.opacity(0.55)
+                    .ignoresSafeArea()
+                    .overlay {
+                        VStack(spacing: 14) {
+                            ProgressView()
+                            Text("Securing your OneWay account…")
+                                .font(.headline)
+                        }
+                        .padding(24)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+                    }
+                    .zIndex(20)
+            }
+
             if callKitManager.isIncomingCall,
                let activeCallUUID = callKitManager.activeCallUUID,
                !liveKitManager.isPresentingGroupCall {
@@ -124,6 +165,9 @@ struct RootView: View {
                 await environment.accountDeletionScheduler.processIfNeeded()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .oneWaySentinelLockdownRequested)) { _ in
+            Task { await performSentinelLockdown() }
+        }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             Task {
@@ -135,6 +179,11 @@ struct RootView: View {
                 dismissKeyboard()
             }
         )
+        .sheet(isPresented: $isSentinelPresented) {
+            NavigationStack {
+                SentinelSecurityCenterView()
+            }
+        }
         .fullScreenCover(isPresented: $liveKitManager.isPresentingGroupCall) {
             if let roomName = liveKitManager.currentRoomName {
                 GroupCallView(
@@ -146,6 +195,16 @@ struct RootView: View {
         }
         .environmentObject(tabVisibilityManager)
         .preferredColorScheme(.dark)
+    }
+
+    private func performSentinelLockdown() async {
+        guard !isSentinelLockingDown else { return }
+        isSentinelLockingDown = true
+        defer { isSentinelLockingDown = false }
+
+        environment.accountDeletionScheduler.cancel()
+        try? await environment.authService.signOut()
+        isSentinelPresented = false
     }
 
     private func dismissKeyboard() {
