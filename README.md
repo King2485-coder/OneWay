@@ -1,4 +1,4 @@
-# OneWay (CipherChat) – Architecture Overview
+# OneWay – Architecture Overview
 
 ## Targets & Entry
 - **App:** `CipherChatApp` (`OneWay/OneWay/App`) uses SwiftUI and `AppEnvironment` for dependency injection.
