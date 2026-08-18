@@ -70,6 +70,19 @@ struct PhoneRootView: View {
             } message: {
                 Text(manager.alertMessage ?? "")
             }
+
+            .alert(
+                "External Phone Call",
+                isPresented: Binding(
+                    get: { manager.pendingExternalDialRequest != nil },
+                    set: { if !$0 { manager.cancelExternalDial() } }
+                )
+            ) {
+                Button("Cancel", role: .cancel) { manager.cancelExternalDial() }
+                Button("Use External Network") { manager.confirmExternalDial() }
+            } message: {
+                Text("This number is outside OneWay. It will use your phone carrier or external phone network. Continue?")
+            }
             .sheet(item: $manager.activeVoiceCall) { activeCall in
                 CallSessionSheet(
                     callID: activeCall.id,

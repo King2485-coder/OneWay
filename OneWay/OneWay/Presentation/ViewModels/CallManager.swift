@@ -14,6 +14,28 @@ final class CallManager: ObservableObject {
         let type: CallType
     }
 
+    enum CallDialTarget: CustomStringConvertible, Equatable {
+        case oneWayId(String)
+        case oneWayNumber(String)
+        case phoneNumber(String)
+        case invalid
+
+        var description: String {
+            switch self {
+            case .oneWayId(let value): return "oneWayId(\(value))"
+            case .oneWayNumber(let value): return "oneWayNumber(\(value))"
+            case .phoneNumber(let value): return "phoneNumber(\(value))"
+            case .invalid: return "invalid"
+            }
+        }
+    }
+
+    struct ExternalDialRequest: Identifiable, Equatable {
+        let id = UUID()
+        let phoneNumber: String
+        let prefersVideo: Bool
+    }
+
     @Published private(set) var backendState: BackendConnectionState = .checking
     @Published private(set) var connectedFriends: [FriendConnection] = []
     @Published private(set) var importedContacts: [ContactEntry] = []
@@ -24,6 +46,7 @@ final class CallManager: ObservableObject {
     @Published var dialedText = ""
     @Published var alertMessage: String?
     @Published var activeVoiceCall: ActiveVoiceCall?
+    @Published var pendingExternalDialRequest: ExternalDialRequest?
     @Published private(set) var favoriteFriendIDs: Set<UUID>
 
     private let friendService: FriendService
@@ -33,6 +56,7 @@ final class CallManager: ObservableObject {
     private let historyManager: CallHistoryManager
     private let voicemailManager: VoicemailManager
     private let apiClient: APIClient
+    private let pstnBridgeService: PSTNBridgeService
 
     init(
         friendService: FriendService,
@@ -46,6 +70,7 @@ final class CallManager: ObservableObject {
         self.importedContactsStore = importedContactsStore
         self.callService = callService
         self.apiClient = apiClient
+        self.pstnBridgeService = PSTNBridgeService(client: apiClient)
         self.historyManager = CallHistoryManager(
             baseURL: apiClient.baseURL,
             userID: AppEnvironment.currentUserID()
@@ -140,6 +165,7 @@ final class CallManager: ObservableObject {
 
     func startVoiceCall(with friend: FriendConnection) async {
         do {
+            print("📞 CallManager using CallService path")
             let session = try await callService.startCall(chatID: friend.id, type: .voice)
             activeVoiceCall = ActiveVoiceCall(id: session.id, displayName: friend.displayName, type: .voice)
         } catch {
@@ -149,16 +175,9 @@ final class CallManager: ObservableObject {
 
     func startVideoCall(with friend: FriendConnection) async {
         do {
-            let callUUID = UUID()
-            let roomName = "call-\(friend.id.uuidString.lowercased())-\(AppEnvironment.currentUserID())"
-            CallKitManager.shared.startOutgoingCall(uuid: callUUID, handle: friend.displayName)
-            try await LiveKitManager.shared.startCall(
-                roomName: roomName,
-                userId: AppEnvironment.currentUserID(),
-                calleeUserId: friend.id.uuidString,
-                callerName: AppEnvironment.currentUserID(),
-                callUUID: callUUID
-            )
+            print("📞 CallManager using CallService path")
+            let session = try await callService.startCall(chatID: friend.id, type: .video)
+            activeVoiceCall = ActiveVoiceCall(id: session.id, displayName: friend.displayName, type: .video)
         } catch {
             alertMessage = error.localizedDescription
         }
@@ -178,16 +197,45 @@ final class CallManager: ObservableObject {
     }
 
     func placeDialedCall(video: Bool) async {
-        guard let friend = resolveFriend(from: dialedText) else {
-            alertMessage = "Enter a saved OneWay contact name, handle, or UUID to place a call."
-            return
-        }
+        let input = dialedText
+        print("📞 Dial target:", input)
+        let target = classifyCallTarget(input)
+        print("📞 Classified as:", target)
 
-        if video {
-            await startVideoCall(with: friend)
-        } else {
-            await startVoiceCall(with: friend)
+        switch target {
+        case .oneWayId(let id):
+            await startOneWayNativeCall(to: id, video: video)
+        case .oneWayNumber(let number):
+            await startOneWayNativeCall(to: number, video: video)
+        case .phoneNumber(let phone):
+            print("📞 External phone number selected")
+            pendingExternalDialRequest = ExternalDialRequest(phoneNumber: phone, prefersVideo: video)
+        case .invalid:
+            alertMessage = "Enter a OneWay ID, OneWay number, or phone number."
         }
+    }
+
+    func confirmExternalDial() {
+        guard let request = pendingExternalDialRequest else { return }
+        print("📞 Network type:", CallNetworkType.pstnBridge.statusLabel)
+        pendingExternalDialRequest = nil
+
+        Task {
+            do {
+                let response = try await pstnBridgeService.startPSTNCall(to: request.phoneNumber, fromNumber: nil)
+                if (response.provider ?? "stub") == "stub" {
+                    alertMessage = "OneWay external phone bridge is not connected yet. Add Twilio/Telnyx credentials to place real off-network calls."
+                } else {
+                    alertMessage = "Using External Network — connecting through OneWay bridge."
+                }
+            } catch {
+                alertMessage = "Failed to start OneWay external network call: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func cancelExternalDial() {
+        pendingExternalDialRequest = nil
     }
 
     func playVoicemail(_ entry: VoicemailEntry) async {
@@ -220,6 +268,48 @@ final class CallManager: ObservableObject {
     private func resolveFriend(for entry: CallHistoryEntry) -> FriendConnection? {
         let remoteID = historyManager.otherParty(entry)
         return connectedFriends.first { $0.id.uuidString.caseInsensitiveCompare(remoteID) == .orderedSame }
+    }
+
+
+    private func classifyCallTarget(_ input: String) -> CallDialTarget {
+        let raw = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let compact = raw.components(separatedBy: .whitespacesAndNewlines).joined()
+
+        guard !compact.isEmpty else {
+            return .invalid
+        }
+
+        if compact.hasPrefix("@") {
+            return .oneWayId(compact.lowercased())
+        }
+
+        if compact.uppercased().hasPrefix("OW-") {
+            return .oneWayNumber(compact.uppercased())
+        }
+
+        let digits = compact.filter(\.isNumber)
+
+        if digits.count >= 7 {
+            return .phoneNumber(digits)
+        }
+
+        return .invalid
+    }
+
+    private func startOneWayNativeCall(to identity: String, video: Bool) async {
+        print("📞 Starting OneWay-native call via backend")
+        print("📞 Network type:", CallNetworkType.oneWayNative.statusLabel)
+
+        guard let friend = resolveFriend(from: identity) else {
+            alertMessage = "This OneWay target is not yet in your connected contacts. Add/accept them first."
+            return
+        }
+
+        if video {
+            await startVideoCall(with: friend)
+        } else {
+            await startVoiceCall(with: friend)
+        }
     }
 
     private func resolveFriend(from raw: String) -> FriendConnection? {

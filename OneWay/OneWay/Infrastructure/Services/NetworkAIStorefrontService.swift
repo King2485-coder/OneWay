@@ -8,11 +8,11 @@ final class NetworkAIStorefrontService: AIStorefrontService {
     private let storefrontMapper: (NetworkBusinessService.APIStorefront) -> Storefront
 
     init(baseURL: URL, session: URLSession = .shared, mapper: @escaping (NetworkBusinessService.APIStorefront) -> Storefront) {
-        self.baseURL = baseURL
+        self.baseURL = URL(string: APIConfig.normalizedLANURL(baseURL.absoluteString)) ?? baseURL
         self.session = session
         self.storefrontMapper = mapper
         #if DEBUG
-        print("[AI Service] Base URL: \(baseURL.absoluteString)")
+        print("[AI Service] Base URL: \(self.baseURL.absoluteString)")
         #endif
     }
 

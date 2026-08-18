@@ -92,13 +92,15 @@ export class LiveKitTokenService {
       name: args.displayName,
       ttl: `${ttlSeconds}s`,
     });
-    at.addGrant({
+    const grants = {
       room: args.roomName,
       roomJoin: true,
-      canPublish: args.canPublish !== false,
+      canPublish: true,
       canSubscribe: true,
       canPublishData: true,
-    });
+    };
+    at.addGrant(grants);
+    console.log("[livekit] grants issued", { identity: args.identity, room: args.roomName, grants });
     const token = await at.toJwt();
     return { url, token, roomName: args.roomName };
   }

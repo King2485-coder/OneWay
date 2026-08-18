@@ -445,7 +445,7 @@ struct ShopFeedView: View {
         } catch {
             let nsError = error as NSError
             if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCannotFindHost {
-                errorMessage = "The storefront server could not be found. Verify that api.oneway.app is live and reachable over HTTPS."
+                errorMessage = "The storefront server could not be found. Verify that oneway.is is live and reachable over HTTPS."
             } else {
                 errorMessage = "Could not load storefront products."
             }

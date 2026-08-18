@@ -17,10 +17,23 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		3CE3F5382F3D97780031C4D2 /* OneWay */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				3C7DUPES2FBB00010039FA39 /* Exceptions for "OneWay" folder in "OneWay" target */,
+			);
 			path = OneWay;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		3C7DUPES2FBB00010039FA39 /* Exceptions for "OneWay" folder in "OneWay" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"App/APIConfig 2.swift",
+			);
+			target = 3CE3F5352F3D97780031C4D2 /* OneWay */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		3CE3F5332F3D97780031C4D2 /* Frameworks */ = {
@@ -65,6 +78,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 3CE3F5412F3D977B0031C4D2 /* Build configuration list for PBXNativeTarget "OneWay" */;
 			buildPhases = (
+				3C7DUPES2FBC00020039FA39 /* Disable Duplicate Swift Sources */,
 				3CE3F5322F3D97780031C4D2 /* Sources */,
 				3CE3F5332F3D97780031C4D2 /* Frameworks */,
 				3CE3F5342F3D97780031C4D2 /* Resources */,
@@ -130,6 +144,27 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		3C7DUPES2FBC00020039FA39 /* Disable Duplicate Swift Sources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Disable Duplicate Swift Sources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/Scripts/disable_duplicate_swift_sources.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		3CE3F5322F3D97780031C4D2 /* Sources */ = {
@@ -296,6 +331,12 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.king.OneWay;
 				PRODUCT_NAME = CipherChat;
+				EXCLUDED_SOURCE_FILE_NAMES = (
+					"* 2.swift",
+					"APIConfig 2.swift",
+				);
+				ONEWAY_API_BASE_URL = "http://192.168.0.204:3000";
+				ONEWAY_LAN_API_BASE_URL = "http://192.168.0.204:3000";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = Nonisolated;
@@ -337,6 +378,12 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.king.OneWay;
 				PRODUCT_NAME = CipherChat;
+				EXCLUDED_SOURCE_FILE_NAMES = (
+					"* 2.swift",
+					"APIConfig 2.swift",
+				);
+				ONEWAY_API_BASE_URL = "https://oneway.is";
+				ONEWAY_LAN_API_BASE_URL = "https://oneway.is";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = Nonisolated;

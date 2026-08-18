@@ -75,8 +75,8 @@ OneWay/
 ## One-time deploy
 
 Pre-reqs: Ubuntu 22.04+ with Docker installed, a domain pointed at the box
-(`api.oneway.app`), and Let's Encrypt certs already provisioned for that
-hostname (`certbot --nginx -d api.oneway.app`).
+(`api.oneway.is`), and Let's Encrypt certs already provisioned for that
+hostname (`certbot --nginx -d api.oneway.is`).
 
 ```bash
 # 1. Get the code
@@ -99,11 +99,11 @@ docker compose logs -f api
 docker compose logs -f nginx
 
 # 6. Verify health from outside.
-curl https://api.oneway.app/health
+curl https://api.oneway.is/health
 # → {"ok":true}
 
 # 7. Verify auth.
-curl -X POST https://api.oneway.app/api/auth/register \
+curl -X POST https://api.oneway.is/api/auth/register \
   -H 'Content-Type: application/json' \
   -d '{"email":"king@oneway.app","password":"correct horse battery"}'
 # → {"token":"eyJ...","user":{...}}
@@ -131,7 +131,7 @@ first — `migrate deploy` is non-interactive and won't reset data.
 ## Final test checklist
 
 These are the smoke tests for the production stack. Run them from a clean
-build of the iOS app pointed at `https://api.oneway.app`.
+build of the iOS app pointed at `https://api.oneway.is`.
 
 ```text
 1.  Register two accounts (User A, User B) via /api/auth/register.

@@ -29,6 +29,7 @@ import { storefrontsRouter } from "./routes/storefronts";
 import { turnRouter } from "./routes/turn";
 import { uploadsRouter } from "./routes/uploads";
 import { voicemailRouter } from "./routes/voicemail";
+import { pstnRouter } from "./routes/pstn";
 
 import { CallRegistry } from "./services/CallRegistry";
 import type { ICallRegistry } from "./services/CallRegistry";
@@ -38,6 +39,10 @@ import { PushTokenStore } from "./services/PushTokenStore";
 import { VoIPPushService } from "./services/VoIPPushService";
 import { CallHistoryService } from "./services/CallHistoryService";
 import { VoicemailService } from "./services/VoicemailService";
+import { StubPSTNProvider } from "./services/pstn/StubPSTNProvider";
+import { TwilioPSTNProvider } from "./services/pstn/TwilioPSTNProvider";
+import { TelnyxPSTNProvider } from "./services/pstn/TelnyxPSTNProvider";
+import type { PSTNProvider } from "./services/pstn/PSTNProvider";
 
 import { CallWebSocketServer } from "./realtime/CallWebSocketServer";
 import { LocalObjectStorage } from "./lib/storage/LocalObjectStorage";
@@ -193,6 +198,18 @@ const voicemail = new VoicemailService(storage);
 
 const livekit = LiveKitTokenService.fromEnv();
 
+const pstnProvider: PSTNProvider = (() => {
+  const provider = (process.env.PSTN_PROVIDER ?? "stub").toLowerCase();
+  switch (provider) {
+    case "twilio":
+      return new TwilioPSTNProvider();
+    case "telnyx":
+      return new TelnyxPSTNProvider();
+    default:
+      return new StubPSTNProvider();
+  }
+})();
+
 // -------------------------------------------------------------------------
 // REST routes
 // -------------------------------------------------------------------------
@@ -241,6 +258,7 @@ app.use("/api/voicemail", voicemailRouter({
   preferSignedRedirect: Boolean(s3),
   localStorage: localStorage ?? undefined,
 }));
+app.use("/api/pstn", pstnRouter(pstnProvider));
 
 // -------------------------------------------------------------------------
 // WebSocket signalling

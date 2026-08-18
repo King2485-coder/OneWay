@@ -40,21 +40,82 @@ actor NetworkCallSignalingClient: CallSignalingClient {
     }
 
     /// - Parameters:
-    ///   - baseURL: API base, e.g. `https://api.onewayapp.com`. Used for both
-    ///     REST and to derive the WebSocket URL by swapping `http(s)` -> `ws(s)`.
+    ///   - baseURL: API base. Used for both REST and to derive the WebSocket URL.
+    ///     HTTPS IP literals are normalized to the local HTTP dev backend to avoid
+    ///     raw-IP TLS certificate failures during Debug LAN testing.
     ///   - userID: the local user's id. Sent as `Bearer dev:<id>` until real
     ///     auth is in.
     ///   - session: injectable for tests.
     init(baseURL: URL,
          userID: String,
          session: URLSession = .signalingDefault) {
-        self.baseURL = baseURL
+        self.baseURL = Self.canonicalBaseURL(baseURL)
         self.userID = userID
         self.session = session
         let (stream, continuation) = AsyncStream<SignalingEvent>.makeStream(bufferingPolicy: .bufferingNewest(64))
         self.incomingStream = stream
         self.eventContinuation = continuation
         Task { [weak self] in await self?.observeAppLifecycle() }
+    }
+
+
+    private static func canonicalBaseURL(_ url: URL) -> URL {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let host = components.host?.lowercased(),
+              components.scheme?.lowercased() == "https" else {
+            return url
+        }
+
+        if isIPLiteralHost(host) {
+            // The local nginx certificate is issued for oneway.is, so iOS rejects
+            // wss://<LAN IP>. For raw-IP Debug LAN testing, use the same HTTP
+            // Node backend endpoint as APIConfig; makeWebSocketURL will derive ws://.
+            components.scheme = "http"
+            components.port = 3000
+            components.path = ""
+            components.query = nil
+            components.fragment = nil
+            return components.url ?? url
+        }
+
+        guard isLegacyAPIHost(host) else { return url }
+
+        components.host = canonicalSignalingHost
+        components.path = ""
+        components.query = nil
+        components.fragment = nil
+        return components.url ?? url
+    }
+
+    private static let canonicalSignalingHost = "oneway.is"
+
+    private static var legacyAPIHost: String {
+        "api." + canonicalSignalingHost
+    }
+
+    private static func isLegacyAPIHost(_ host: String) -> Bool {
+        host == legacyAPIHost
+    }
+
+    private static func isIPLiteralHost(_ host: String) -> Bool {
+        if isIPv4Literal(host) { return true }
+        return host.contains(":") && host.allSatisfy { character in
+            character.isHexDigit || character == ":" || character == "."
+        }
+    }
+
+    private static func isIPv4Literal(_ host: String) -> Bool {
+        let octets = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard octets.count == 4 else { return false }
+
+        return octets.allSatisfy { octet in
+            guard !octet.isEmpty,
+                  octet.allSatisfy({ $0.isNumber }),
+                  let value = Int(octet) else {
+                return false
+            }
+            return (0...255).contains(value)
+        }
     }
 
     // Listen for foreground/background transitions and force a fresh
@@ -255,6 +316,7 @@ actor NetworkCallSignalingClient: CallSignalingClient {
 
     private func connectWebSocket() {
         guard let url = makeWebSocketURL() else { return }
+        print("OneWay signaling WebSocket URL:", url.absoluteString)
         var request = URLRequest(url: url)
         request.setValue(AuthTokenStore.shared.authorizationHeader(),
                          forHTTPHeaderField: "Authorization")
@@ -273,6 +335,11 @@ actor NetworkCallSignalingClient: CallSignalingClient {
     }
 
     private func makeWebSocketURL() -> URL? {
+        let host = baseURL.host?.lowercased()
+        if host == canonicalSignalingHost || host == "api." + canonicalSignalingHost {
+            return URL(string: "wss://" + canonicalSignalingHost + "/ws/calls")
+        }
+
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             return nil
         }

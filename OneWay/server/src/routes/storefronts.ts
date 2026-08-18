@@ -14,7 +14,8 @@ const patchSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
   category: z.string().optional(),
-  tagline: z.string().optional()
+  tagline: z.string().optional(),
+  requestedHandle: z.string().min(1).optional()
 });
 
 export function storefrontsRouter({ prisma }: { prisma: PrismaClient }) {
@@ -79,16 +80,44 @@ export function storefrontsRouter({ prisma }: { prisma: PrismaClient }) {
     const existing = await prisma.storefront.findFirst({ where: { id, ownerId } });
     if (!existing) return res.status(404).json({ error: "not_found" });
 
+    const requestedHandle = parsed.data.requestedHandle ? safeSlug(parsed.data.requestedHandle) : undefined;
+    if (parsed.data.requestedHandle && !requestedHandle) {
+      return res.status(400).json({ error: "invalid_handle" });
+    }
+
+    if (requestedHandle && requestedHandle !== existing.slug) {
+      const handleOwner = await prisma.storefront.findUnique({ where: { slug: requestedHandle } });
+      if (handleOwner && handleOwner.id !== id) {
+        return res.status(409).json({ error: "handle_taken", requestedHandle });
+      }
+    }
+
+    console.log("[storefronts] PATCH", {
+      storefrontId: id,
+      requestedHandle: parsed.data.requestedHandle ?? null,
+      normalizedHandle: requestedHandle ?? null,
+      existingHandle: existing.slug
+    });
+
     const store = await prisma.storefront.update({
       where: { id },
       data: {
         name: parsed.data.name ?? undefined,
         description: parsed.data.description ?? undefined,
         category: parsed.data.category ?? undefined,
-        tagline: parsed.data.tagline ?? undefined
+        tagline: parsed.data.tagline ?? undefined,
+        slug: requestedHandle ?? undefined
       },
       include: { products: true, collections: true, theme: true }
     });
+
+    console.log("[storefronts] PATCH result", {
+      storefrontId: id,
+      requestedHandle: requestedHandle ?? null,
+      resultHandle: store.slug,
+      preview: `https://oneway.is/shop/${store.slug}`
+    });
+
     res.json(toDTO(store));
   });
 

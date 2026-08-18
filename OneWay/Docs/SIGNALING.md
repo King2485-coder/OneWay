@@ -72,7 +72,7 @@ Identity inside the JWT is always the authenticated user — body
 
 ## WebSocket protocol
 
-`wss://api.oneway.app/ws/calls` (or `ws://` in dev).
+`wss://api.oneway.is/ws/calls` (or `ws://` in dev).
 
 ### Frame shape
 

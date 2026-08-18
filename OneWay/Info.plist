@@ -30,6 +30,10 @@
 	<string>OneWay uses your photo library so you can choose photos and videos for chats and stories.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>OneWay uses your local network to connect to your OneWay backend during development.</string>
+	<key>OneWayAPIBaseURL</key>
+	<string>$(ONEWAY_API_BASE_URL)</string>
+	<key>OneWayLANAPIBaseURL</key>
+	<string>$(ONEWAY_LAN_API_BASE_URL)</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
