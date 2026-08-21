@@ -38,7 +38,11 @@ ENV PORT=3000
 ENV GIT_COMMIT_SHA=$GIT_COMMIT_SHA
 
 # Drop privileges. UID/GID match the official `node` user.
-RUN addgroup -g 1001 -S oneway && adduser -u 1001 -S oneway -G oneway
+RUN addgroup -g 1001 -S oneway \
+    && adduser -u 1001 -S -s /bin/sh oneway -G oneway \
+    && mkdir -p /home/oneway/.ssh \
+    && chmod 0700 /home/oneway/.ssh \
+    && chown -R oneway:oneway /home/oneway/.ssh
 
 # Pre-create persistent dirs the app expects to write to.
 RUN mkdir -p /var/lib/oneway/uploads /app/data && chown -R oneway:oneway /var/lib/oneway /app
