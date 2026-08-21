@@ -970,10 +970,21 @@ async function initializeServer(): Promise<void> {
     && [process.env.PSTN_PROVIDER, process.env.SMS_PROVIDER].some((value) => value?.trim().toLowerCase() === "twilio")) {
     const twilioValidation = validateTwilioProductionEnvironment();
     if (!twilioValidation.ok) {
-      throw new Error(`Twilio production configuration invalid: ${[
+      const validationMessage = `Twilio production configuration invalid: ${[
         ...twilioValidation.missing.map((name) => `missing ${name}`),
         ...twilioValidation.warnings,
-      ].join("; ")}`);
+      ].join("; ")}`;
+      logger.error(
+        {
+          missing: twilioValidation.missing,
+          warnings: twilioValidation.warnings,
+          liveKitSipPathPreserved: true,
+        },
+        `[twilio] ${validationMessage}`,
+      );
+      if ((process.env.TWILIO_FAIL_STARTUP_ON_INVALID_CONFIG ?? "").trim().toLowerCase() === "true") {
+        throw new Error(validationMessage);
+      }
     }
   }
   assertSitePublicationRoutesRegistered(registeredRouteKeys());
