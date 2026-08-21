@@ -49,12 +49,11 @@ COPY --from=builder --chown=oneway:oneway /app/dist ./dist
 COPY --from=builder --chown=oneway:oneway /app/prisma ./prisma
 COPY --from=builder --chown=oneway:oneway /app/scripts ./scripts
 
-# Railway mounts persistent storage at /app/data. Keep the directories in the
-# image, but do not declare Docker VOLUME instructions: Railway rejects them
-# and owns the mount lifecycle through its volume configuration.
+# Render mounts persistent storage at /app/data. Keep the directories in the
+# image as well so local container runs remain deterministic.
 
 EXPOSE 3000
 
 # tini = proper PID 1 reaping for SIGTERM forwarding.
 ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["sh", "/app/scripts/railway-entrypoint.sh"]
+CMD ["sh", "/app/scripts/render-entrypoint.sh"]

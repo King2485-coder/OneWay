@@ -1,0 +1,64 @@
+services:
+  - type: web
+    name: oneway-api
+    runtime: docker
+    plan: standard
+    region: oregon
+    repo: https://github.com/King2485-coder/OneWay
+    branch: codex/render-migration
+    dockerContext: ./OneWay/server
+    dockerfilePath: ./OneWay/server/Dockerfile
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    maxShutdownDelaySeconds: 60
+    domains:
+      - api.oneway.is
+    disk:
+      name: oneway-data
+      mountPath: /app/data
+      sizeGB: 10
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATABASE_URL
+        value: file:/app/data/dev.db
+      - key: API_BASE_URL
+        value: https://api.oneway.is
+      - key: PUBLIC_BASE_URL
+        value: https://oneway.is
+      - key: PUBLIC_WEBHOOK_BASE_URL
+        value: https://api.oneway.is
+      - key: PSTN_WEBHOOK_BASE_URL
+        value: https://api.oneway.is
+      - key: SMS_WEBHOOK_BASE_URL
+        value: https://api.oneway.is
+      - key: UPLOADS_PUBLIC_BASE_URL
+        value: https://api.oneway.is
+      - key: TRUST_PROXY
+        value: "true"
+      - key: JWT_SECRET
+        sync: false
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: APNS_KEY_ID
+        sync: false
+      - key: APNS_TEAM_ID
+        sync: false
+      - key: APNS_KEY_P8_BASE64
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
