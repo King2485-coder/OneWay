@@ -6,6 +6,7 @@ import { authRateLimit } from "../lib/rateLimit";
 import { authMiddleware, type AuthenticatedRequest } from "../middleware/auth";
 import { createInitialIdentity, normalizeOneWayId, sanitizeEmailAlias } from "../services/identity";
 import { assignInitialNumber } from "../services/numbers";
+import { consumePasswordReset, issuePasswordReset, resolvePasswordUser } from "../services/auth/PasswordResetService";
 
 /**
  * Email + password auth. Hashed with bcrypt, signed with HS256 JWT.
@@ -74,6 +75,8 @@ const loginSchema = z.object({
   email: z.string().email().max(254).optional(),
   password: z.string().min(6).max(200),
 });
+const resetRequestSchema = z.object({ identifier: z.string().min(1).max(254) });
+const resetConfirmSchema = z.object({ identifier: z.string().min(1).max(254), code: z.string().min(8).max(32), newPassword: z.string().min(6).max(200) });
 
 export function authRouter(): express.Router {
   const router = express.Router();
@@ -155,7 +158,7 @@ export function authRouter(): express.Router {
         usernameHidden: parsed.data.usernameHidden ?? true,
       });
       await assignInitialNumber(user.id);
-      const token = signToken(jwt, secret, user.id);
+      const token = signToken(jwt, secret, user.id, user.passwordChangedAt);
       const identity = await prisma.oneWayIdentity.findUnique({
         where: { userId: user.id },
         select: {
@@ -212,25 +215,7 @@ export function authRouter(): express.Router {
       retryCount: req.headers["x-oneway-auth-retry-count"] ?? "0",
     }, "[auth] login request received");
     try {
-      const emailLike = identifier.includes("@") && identifier.includes(".");
-      const byEmail = emailLike
-        ? await prisma.user.findUnique({ where: { email: identifier.toLowerCase() } })
-        : null;
-      const byOnewayId = identifier.startsWith("@")
-        ? await prisma.oneWayIdentity.findUnique({
-            where: { onewayId: normalizeOneWayId(identifier) },
-            select: { userId: true },
-          })
-        : null;
-      const byUsername = !identifier.startsWith("@") && !emailLike
-        ? await prisma.oneWayIdentity.findFirst({
-            where: { username: identifier },
-            select: { userId: true },
-          })
-        : null;
-
-      const userId = byEmail?.id ?? byOnewayId?.userId ?? byUsername?.userId ?? null;
-      const user = userId ? await prisma.user.findUnique({ where: { id: userId } }) : null;
+      const user = await resolvePasswordUser(prisma, identifier);
       // Same response on missing user vs. wrong password — we do NOT leak
       // whether the email is registered.
       if (!user || !user.passwordHash || user.accountStatus !== "active") {
@@ -255,7 +240,7 @@ export function authRouter(): express.Router {
         res.status(401).json({ error: "invalid_credentials" });
         return;
       }
-      const token = signToken(jwt, secret, user.id);
+      const token = signToken(jwt, secret, user.id, user.passwordChangedAt);
       const identity = await prisma.oneWayIdentity.findUnique({
         where: { userId: user.id },
         select: {
@@ -291,12 +276,36 @@ export function authRouter(): express.Router {
     }
   });
 
+  router.post("/password-reset/request", authRateLimit(), async (req, res) => {
+    const parsed = resetRequestSchema.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: "invalid_body" }); return; }
+    if (!process.env.JWT_SECRET) { res.status(503).json({ error: "auth_disabled" }); return; }
+    try { await issuePasswordReset(prisma, parsed.data.identifier); }
+    catch (err) { logger.error({ err }, "[auth] password reset request failed"); }
+    res.status(202).json({ ok: true, message: "If that account exists, a reset code has been sent to its email address." });
+  });
+
+  router.post("/password-reset/confirm", authRateLimit(), async (req, res) => {
+    const bcrypt = loadBcrypt();
+    if (!bcrypt || !process.env.JWT_SECRET) { res.status(503).json({ error: "auth_disabled" }); return; }
+    const parsed = resetConfirmSchema.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: "invalid_body", message: "Enter the reset code and a password of at least 6 characters." }); return; }
+    try {
+      const user = await resolvePasswordUser(prisma, parsed.data.identifier);
+      if (!user || user.accountStatus !== "active") { await timingPad(); res.status(400).json({ error: "invalid_reset_code", message: "That reset code is invalid or has expired." }); return; }
+      const passwordHash = await bcrypt.hash(parsed.data.newPassword, 12);
+      if (!await consumePasswordReset(prisma, user.id, parsed.data.code, passwordHash)) { res.status(400).json({ error: "invalid_reset_code", message: "That reset code is invalid or has expired." }); return; }
+      logger.info({ userId: user.id }, "[auth] password reset completed");
+      res.json({ ok: true, message: "Your password has been updated. You can now sign in." });
+    } catch (err) { logger.error({ err }, "[auth] password reset confirmation failed"); res.status(500).json({ error: "internal_error" }); }
+  });
+
   return router;
 }
 
-function signToken(jwt: JwtModule, secret: string, userId: string): string {
+function signToken(jwt: JwtModule, secret: string, userId: string, passwordChangedAt: Date | null): string {
   const ttl = clampTtl(Number(process.env.JWT_TTL_SECONDS ?? 604800));
-  return jwt.sign({ sub: userId }, secret, { algorithm: "HS256", expiresIn: ttl });
+  return jwt.sign({ sub: userId, pwd: passwordChangedAt?.getTime() ?? 0 }, secret, { algorithm: "HS256", expiresIn: ttl });
 }
 
 function clampTtl(value: number): number {

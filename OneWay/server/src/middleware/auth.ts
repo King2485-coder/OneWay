@@ -82,11 +82,16 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       const { prisma } = require("../lib/db");
       const activeUser = await prisma.user.findUnique({
         where: { id: canonicalUserId(result.userId) },
-        select: { id: true, accountStatus: true },
+        select: { id: true, accountStatus: true, passwordChangedAt: true },
       });
       if (!activeUser || activeUser.accountStatus !== "active") {
         auditAuthFailure(req, "deleted_or_missing_account");
         res.status(401).json({ error: "account_not_active" });
+        return;
+      }
+      if (activeUser.passwordChangedAt && result.passwordVersion !== activeUser.passwordChangedAt.getTime()) {
+        auditAuthFailure(req, "password_changed");
+        res.status(401).json({ error: "session_expired" });
         return;
       }
     } catch (error) {
@@ -113,7 +118,7 @@ export function parseAuthToken(token: string | undefined): string | null {
   }
   // Try JWT first.
   const fromJwt = verifyJwt(trimmed);
-  if (fromJwt) return fromJwt;
+  if (fromJwt) return fromJwt.userId;
   if (devAllowed()) {
     if (trimmed.startsWith("dev:")) {
       const id = trimmed.slice(4);
@@ -124,12 +129,12 @@ export function parseAuthToken(token: string | undefined): string | null {
   return null;
 }
 
-function resolveIdentity(req: Request): { userId: string; mode: "jwt" | "dev" } | null {
+function resolveIdentity(req: Request): { userId: string; mode: "jwt" | "dev"; passwordVersion?: number } | null {
   const auth = req.headers.authorization;
   if (typeof auth === "string" && auth.startsWith("Bearer ")) {
     const token = auth.slice("Bearer ".length).trim();
     const fromJwt = verifyJwt(token);
-    if (fromJwt) return { userId: fromJwt, mode: "jwt" };
+    if (fromJwt) return { userId: fromJwt.userId, mode: "jwt", passwordVersion: fromJwt.passwordVersion };
     if (devAllowed()) {
       if (token.startsWith("dev:")) {
         const id = token.slice(4);
@@ -149,7 +154,7 @@ function resolveIdentity(req: Request): { userId: string; mode: "jwt" | "dev" } 
   return null;
 }
 
-function verifyJwt(token: string): string | null {
+function verifyJwt(token: string): { userId: string; passwordVersion?: number } | null {
   // JWTs always have at least one period and aren't UUID-like.
   if (!token.includes(".")) return null;
   const secret = process.env.JWT_SECRET;
@@ -160,7 +165,7 @@ function verifyJwt(token: string): string | null {
     const decoded = jwt.verify(token, secret) as Record<string, unknown> | string;
     if (typeof decoded === "string") return null;
     const sub = decoded.sub;
-    if (typeof sub === "string" && UUID_LIKE.test(sub)) return canonicalUserId(sub);
+    if (typeof sub === "string" && UUID_LIKE.test(sub)) return { userId: canonicalUserId(sub), passwordVersion: typeof decoded.pwd === "number" ? decoded.pwd : undefined };
     return null;
   } catch (err) {
     logger.debug({ err }, "[auth] jwt verify failed");

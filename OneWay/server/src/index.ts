@@ -91,6 +91,7 @@ import { ensureIdentityWalkieNameColumn } from "./services/identity";
 import { ensureDevTestAccounts } from "./services/devTestAccounts";
 import { ensurePlatformCapabilityTables } from "./services/platformCapabilities";
 import { ensureCommunityTables } from "./services/communityTables";
+import { ensurePasswordResetSchema } from "./services/auth/PasswordResetService";
 import {
   assertSitePublicationRoutesRegistered,
   reconcileAllSitePublicationsOnStartup,
@@ -966,6 +967,7 @@ initializeServer()
   });
 
 async function initializeServer(): Promise<void> {
+  await ensurePasswordResetSchema(prisma);
   if (process.env.NODE_ENV === "production"
     && [process.env.PSTN_PROVIDER, process.env.SMS_PROVIDER].some((value) => value?.trim().toLowerCase() === "twilio")) {
     const twilioValidation = validateTwilioProductionEnvironment();

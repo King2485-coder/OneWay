@@ -29,6 +29,7 @@ model User {
   accountStatus         String    @default("active")
   loginDisabledAt       DateTime?
   publicProfileHiddenAt DateTime?
+  passwordChangedAt     DateTime?
 
   storefronts            Storefront[]
   conversations          ConversationParticipant[]
@@ -56,6 +57,20 @@ model User {
   storeAnalyticsEvents   StoreAnalyticsEvent[]
   emailMailbox           EmailMailbox?
   alertPushTokens        AlertPushToken[]
+  passwordResetTokens    PasswordResetToken[]
+}
+
+model PasswordResetToken {
+  id         String    @id @default(uuid())
+  userId     String
+  codeHash   String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  attempts   Int       @default(0)
+  createdAt  DateTime  @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, createdAt])
+  @@index([expiresAt])
 }
 
 model AlertPushToken {
