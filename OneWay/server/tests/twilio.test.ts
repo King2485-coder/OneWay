@@ -4,7 +4,7 @@ import twilio from "twilio";
 
 import { normalizeSMSDeliveryStatus } from "../src/services/sms/MessageDeliveryService";
 import { normalizeSMSPhoneNumber } from "../src/services/sms/SMSOptOutStore";
-import { validateTwilioProductionEnvironment, validateTwilioRequest } from "../src/services/twilio/TwilioSecurity";
+import { twilioWebhookBaseUrl, validateTwilioProductionEnvironment, validateTwilioRequest } from "../src/services/twilio/TwilioSecurity";
 
 test("validates authentic Twilio webhook signatures and rejects tampering", () => {
   const authToken = "unit-test-auth-token";
@@ -14,6 +14,22 @@ test("validates authentic Twilio webhook signatures and rejects tampering", () =
 
   assert.equal(validateTwilioRequest({ authToken, signature, url, params }), true);
   assert.equal(validateTwilioRequest({ authToken, signature, url, params: { ...params, Body: "STOP" } }), false);
+});
+
+test("uses one canonical Twilio webhook base URL for signing and callback generation", () => {
+  const names = ["TWILIO_WEBHOOK_BASE_URL", "PUBLIC_WEBHOOK_BASE_URL", "PSTN_WEBHOOK_BASE_URL"];
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  try {
+    process.env.TWILIO_WEBHOOK_BASE_URL = "https://api.oneway.is";
+    process.env.PUBLIC_WEBHOOK_BASE_URL = "https://different.example.com";
+    process.env.PSTN_WEBHOOK_BASE_URL = "https://another.example.com";
+    assert.equal(twilioWebhookBaseUrl(), "https://api.oneway.is");
+  } finally {
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
 });
 
 test("normalizes Twilio delivery states", () => {

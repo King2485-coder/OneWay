@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { logger } from "../../lib/logger";
+import { twilioWebhookBaseUrl } from "../twilio/TwilioSecurity";
 import type { PSTNOutboundCallInput, PSTNOutboundCallResult, PSTNProvider } from "./PSTNProvider";
 
 interface TwilioCallCreateResult {
@@ -51,8 +52,8 @@ export class TwilioPSTNProvider implements PSTNProvider {
   private readonly accountSid = process.env.TWILIO_ACCOUNT_SID?.trim() ?? "";
   private readonly authToken = process.env.TWILIO_AUTH_TOKEN?.trim() ?? "";
   private readonly fromNumber = process.env.TWILIO_FROM_NUMBER?.trim() || process.env.PSTN_FROM_NUMBER?.trim() || "";
-  private readonly webhookBaseUrl = (process.env.PUBLIC_WEBHOOK_BASE_URL?.trim() || process.env.PSTN_WEBHOOK_BASE_URL?.trim())
-    ? trimTrailingSlash((process.env.PUBLIC_WEBHOOK_BASE_URL?.trim() || process.env.PSTN_WEBHOOK_BASE_URL!.trim()))
+  private readonly webhookBaseUrl = twilioWebhookBaseUrl()
+    ? trimTrailingSlash(twilioWebhookBaseUrl())
     : "";
   private readonly client: TwilioClient | null;
 
@@ -113,6 +114,24 @@ export class TwilioPSTNProvider implements PSTNProvider {
     } catch (err) {
       return this.failed(`Twilio outbound call failed: ${errorMessage(err)}`);
     }
+  }
+
+  async endOutboundCall(providerCallId: string): Promise<void> {
+    if (!providerCallId.startsWith("CA")) return;
+    if (this.client) {
+      await this.client.calls(providerCallId).update({ status: "completed" });
+      return;
+    }
+    const endpoint = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(this.accountSid)}/Calls/${encodeURIComponent(providerCallId)}.json`;
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${this.accountSid}:${this.authToken}`).toString("base64")}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ Status: "completed" }).toString(),
+    });
+    if (!response.ok && response.status !== 404) throw new Error(`Twilio hangup failed: HTTP ${response.status}`);
   }
 
   private async startDisclosureCall(input: PSTNOutboundCallInput): Promise<PSTNOutboundCallResult> {

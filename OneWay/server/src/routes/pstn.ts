@@ -2654,12 +2654,31 @@ export function pstnRouter(deps: PSTNRouterDeps): express.Router {
       return;
     }
 
-    const updated = await prisma.callSession.updateMany({
+    const callSession = await prisma.callSession.findFirst({
       where: {
         id: callSessionId,
         callerUserId: userId,
         networkType: "pstnBridge",
       },
+      select: { id: true, providerCallId: true, roomName: true },
+    });
+    if (!callSession) {
+      res.status(404).json({ ok: false, callSessionId, error: "call_session_not_found" });
+      return;
+    }
+    const terminationResults = await Promise.allSettled([
+      callSession.providerCallId && provider.endOutboundCall
+        ? provider.endOutboundCall(callSession.providerCallId)
+        : Promise.resolve(),
+      bridgeService.endCallRoom(callSession.roomName),
+    ]);
+    for (const result of terminationResults) {
+      if (result.status === "rejected") {
+        logger.error({ err: result.reason, callSessionId: shortId(callSessionId) }, "[pstn] call leg termination failed");
+      }
+    }
+    await prisma.callSession.update({
+      where: { id: callSession.id },
       data: {
         status: "ended",
         mediaBridgeStatus: "ended",
@@ -2667,10 +2686,9 @@ export function pstnRouter(deps: PSTNRouterDeps): express.Router {
       },
     });
 
-    res.status(updated.count > 0 ? 200 : 404).json({
-      ok: updated.count > 0,
+    res.status(200).json({
+      ok: true,
       callSessionId,
-      error: updated.count > 0 ? undefined : "call_session_not_found",
     });
   });
 
@@ -3110,7 +3128,7 @@ export function pstnRouter(deps: PSTNRouterDeps): express.Router {
     const existing = callSessionId
       ? await prisma.callSession.findUnique({
           where: { id: callSessionId },
-          select: { status: true },
+          select: { status: true, roomName: true },
         }).catch(() => null)
       : null;
     const didEndBeforeDisclosureAcceptance =
@@ -3153,6 +3171,14 @@ export function pstnRouter(deps: PSTNRouterDeps): express.Router {
           : providerStatus ? mapProviderStatusToMediaBridgeStatus(providerStatus) : undefined,
       failureReason: effectiveFailureReason,
     }, "twilio");
+
+    if ((mappedStatus === "ended" || mappedStatus === "failed") && existing?.roomName) {
+      try {
+        await bridgeService.endCallRoom(existing.roomName);
+      } catch (error) {
+        logger.error({ err: error, callSessionId: shortId(callSessionId) }, "[pstn] failed to end LiveKit room after Twilio hangup");
+      }
+    }
 
     if (mappedStatus === "failed" || twilioErrorCode || sipStatus) {
       setLastTwilioFailure({

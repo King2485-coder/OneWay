@@ -244,6 +244,16 @@ export class LiveKitSIPBridgeService {
     );
   }
 
+  async endCallRoom(roomName: string): Promise<void> {
+    if (!this.roomClient || !roomName) return;
+    try {
+      await this.roomClient.deleteRoom(roomName);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/not found|does not exist/i.test(message)) throw error;
+    }
+  }
+
   diagnosticsForCreate(input: StartLiveKitSIPBridgeInput): LiveKitSIPCreateDiagnostics {
     const participantIdentity = liveKitSIPParticipantIdentity(input.callSessionId);
     const sipTrunkId = resolveSipTrunkId(input.provider);

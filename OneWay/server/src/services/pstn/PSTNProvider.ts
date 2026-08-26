@@ -38,4 +38,5 @@ export interface PSTNOutboundCallResult {
 export interface PSTNProvider {
   name: PSTNProviderName;
   startOutboundCall(input: PSTNOutboundCallInput): Promise<PSTNOutboundCallResult>;
+  endOutboundCall?(providerCallId: string): Promise<void>;
 }

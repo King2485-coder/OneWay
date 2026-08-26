@@ -7,15 +7,19 @@ function env(name: string): string {
   return (process.env[name] ?? "").trim();
 }
 
+export function twilioWebhookBaseUrl(): string {
+  return env("TWILIO_WEBHOOK_BASE_URL")
+    || env("PUBLIC_WEBHOOK_BASE_URL")
+    || env("PSTN_WEBHOOK_BASE_URL")
+    || env("SMS_WEBHOOK_BASE_URL");
+}
+
 function firstHeader(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? "" : value ?? "";
 }
 
 export function twilioWebhookUrl(req: Request): string {
-  const configured = env("TWILIO_WEBHOOK_BASE_URL")
-    || env("PUBLIC_WEBHOOK_BASE_URL")
-    || env("PSTN_WEBHOOK_BASE_URL")
-    || env("SMS_WEBHOOK_BASE_URL");
+  const configured = twilioWebhookBaseUrl();
   if (configured) return `${configured.replace(/\/+$/, "")}${req.originalUrl}`;
 
   const forwardedProto = firstHeader(req.headers["x-forwarded-proto"] as string | string[] | undefined)
