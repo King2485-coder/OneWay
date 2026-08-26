@@ -155,8 +155,8 @@ function sanitizeDisclosureBrand(value: string): string {
 
 function pstnDisclosureConfig(): PSTNDisclosureConfig {
   return {
-    enabled: envFlag("PSTN_CALLER_DISCLOSURE_ENABLED", true),
-    requireAccept: envFlag("PSTN_CALLER_DISCLOSURE_REQUIRE_ACCEPT", true),
+    enabled: envFlag("PSTN_CALLER_DISCLOSURE_ENABLED", false),
+    requireAccept: envFlag("PSTN_CALLER_DISCLOSURE_REQUIRE_ACCEPT", false),
     brand: sanitizeDisclosureBrand(envValue("PSTN_CALLER_DISCLOSURE_BRAND") || "OneWay"),
   };
 }
