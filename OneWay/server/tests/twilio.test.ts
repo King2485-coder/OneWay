@@ -4,7 +4,7 @@ import twilio from "twilio";
 
 import { normalizeSMSDeliveryStatus } from "../src/services/sms/MessageDeliveryService";
 import { normalizeSMSPhoneNumber } from "../src/services/sms/SMSOptOutStore";
-import { twilioWebhookBaseUrl, validateTwilioProductionEnvironment, validateTwilioRequest } from "../src/services/twilio/TwilioSecurity";
+import { twilioSignedCallbackUrl, twilioWebhookBaseUrl, validateTwilioProductionEnvironment, validateTwilioRequest } from "../src/services/twilio/TwilioSecurity";
 
 test("validates authentic Twilio webhook signatures and rejects tampering", () => {
   const authToken = "unit-test-auth-token";
@@ -29,6 +29,24 @@ test("uses one canonical Twilio webhook base URL for signing and callback genera
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
+  }
+});
+
+test("adds a server-authenticated signature to outbound Twilio callback URLs", () => {
+  const previous = process.env.TWILIO_AUTH_TOKEN;
+  process.env.TWILIO_AUTH_TOKEN = "unit-test-auth-token";
+  try {
+    const callback = new URL(twilioSignedCallbackUrl(
+      "/api/pstn/twilio/voice",
+      { callSessionId: "session-123", stage: "disclosure" },
+      "https://api.oneway.is",
+    ));
+    assert.equal(callback.searchParams.get("callSessionId"), "session-123");
+    assert.equal(callback.searchParams.get("stage"), "disclosure");
+    assert.ok((callback.searchParams.get("owSig") ?? "").length >= 40);
+  } finally {
+    if (previous === undefined) delete process.env.TWILIO_AUTH_TOKEN;
+    else process.env.TWILIO_AUTH_TOKEN = previous;
   }
 });
 

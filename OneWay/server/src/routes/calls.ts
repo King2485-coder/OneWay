@@ -9,6 +9,8 @@ import { inviteRateLimit } from "../lib/rateLimit";
 import { logger } from "../lib/logger";
 import { prisma } from "../lib/db";
 import type { LiveKitTokenService } from "../services/LiveKitTokenService";
+import { pstnProvider } from "../services/pstn/createPSTNProvider";
+import { LiveKitSIPBridgeService } from "../services/pstn/LiveKitSIPBridgeService";
 
 /**
  * REST counterpart to the WebSocket layer. Every call lifecycle action has a
@@ -494,7 +496,7 @@ function endCall(
   const call = deps.registry.get(callId);
   const operationId = input.operationId ?? input.clientOperationId ?? randomUUID();
   if (!call) {
-    res.status(404).json({ error: "not_found" });
+    void endPSTNCallFromCallKitUUID({ req, res, deps, callKitUUID: callId, operationId });
     return;
   }
   if (!isParticipant(call, userId)) {
@@ -558,6 +560,66 @@ function endCall(
     });
   } catch (err) {
     respondRegistryError(res, err);
+  }
+}
+
+async function endPSTNCallFromCallKitUUID(args: {
+  req: express.Request;
+  res: express.Response;
+  deps: CallsRouterDeps;
+  callKitUUID: string;
+  operationId: string;
+}): Promise<void> {
+  const userId = (args.req as unknown as AuthenticatedRequest).userId;
+  try {
+    const session = await prisma.callSession.findFirst({
+      where: {
+        callerUserId: userId,
+        callerCallKitUUID: args.callKitUUID.toLowerCase(),
+        networkType: "pstnBridge",
+      },
+      select: { id: true, providerCallId: true, roomName: true, endedAt: true },
+    });
+    if (!session) {
+      args.res.status(404).json({ error: "not_found" });
+      return;
+    }
+
+    const bridge = args.deps.livekit ? new LiveKitSIPBridgeService(args.deps.livekit) : null;
+    const results = await Promise.allSettled([
+      session.providerCallId && pstnProvider.endOutboundCall
+        ? pstnProvider.endOutboundCall(session.providerCallId)
+        : Promise.resolve(),
+      bridge ? bridge.endCallRoom(session.roomName) : Promise.resolve(),
+    ]);
+    for (const result of results) {
+      if (result.status === "rejected") {
+        logger.error({ err: result.reason, callSessionId: session.id }, "[calls] PSTN compatibility hangup leg failed");
+      }
+    }
+
+    const endedAt = session.endedAt ?? new Date();
+    await prisma.callSession.update({
+      where: { id: session.id },
+      data: { status: "ended", mediaBridgeStatus: "ended", endedAt },
+    });
+    logger.info({
+      userId,
+      callKitUUID: args.callKitUUID,
+      callSessionId: session.id,
+      operationId: args.operationId,
+    }, "[calls] PSTN call ended through CallKit UUID compatibility route");
+    args.res.json({
+      callId: args.callKitUUID,
+      callSessionId: session.id,
+      status: "ended",
+      alreadyEnded: Boolean(session.endedAt),
+      operationId: args.operationId,
+      endedAt: endedAt.toISOString(),
+    });
+  } catch (error) {
+    logger.error({ err: error, userId, callKitUUID: args.callKitUUID }, "[calls] PSTN compatibility hangup failed");
+    if (!args.res.headersSent) args.res.status(500).json({ error: "pstn_hangup_failed" });
   }
 }
 

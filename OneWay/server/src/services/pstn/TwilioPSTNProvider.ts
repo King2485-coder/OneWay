@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { logger } from "../../lib/logger";
-import { twilioWebhookBaseUrl } from "../twilio/TwilioSecurity";
+import { twilioSignedCallbackUrl, twilioWebhookBaseUrl } from "../twilio/TwilioSecurity";
 import type { PSTNOutboundCallInput, PSTNOutboundCallResult, PSTNProvider } from "./PSTNProvider";
 
 interface TwilioCallCreateResult {
@@ -87,9 +87,8 @@ export class TwilioPSTNProvider implements PSTNProvider {
       return this.failed("Missing PSTN_WEBHOOK_BASE_URL for Twilio voice webhook.");
     }
 
-    const callSessionId = encodeURIComponent(input.callSessionId);
-    const voiceWebhook = `${this.webhookBaseUrl}/api/pstn/twilio/voice?callSessionId=${callSessionId}`;
-    const statusWebhook = `${this.webhookBaseUrl}/api/pstn/twilio/status?callSessionId=${callSessionId}&leg=pstn`;
+    const voiceWebhook = twilioSignedCallbackUrl("/api/pstn/twilio/voice", { callSessionId: input.callSessionId }, this.webhookBaseUrl);
+    const statusWebhook = twilioSignedCallbackUrl("/api/pstn/twilio/status", { callSessionId: input.callSessionId, leg: "pstn" }, this.webhookBaseUrl);
 
     try {
       const response = await this.createCall({
@@ -139,9 +138,8 @@ export class TwilioPSTNProvider implements PSTNProvider {
       return this.failed("Missing PSTN_WEBHOOK_BASE_URL for Twilio disclosure webhooks.");
     }
 
-    const callSessionId = encodeURIComponent(input.callSessionId);
-    const voiceWebhook = `${this.webhookBaseUrl}/api/pstn/twilio/voice?callSessionId=${callSessionId}&stage=disclosure`;
-    const statusWebhook = `${this.webhookBaseUrl}/api/pstn/twilio/status?callSessionId=${callSessionId}&leg=pstn`;
+    const voiceWebhook = twilioSignedCallbackUrl("/api/pstn/twilio/voice", { callSessionId: input.callSessionId, stage: "disclosure" }, this.webhookBaseUrl);
+    const statusWebhook = twilioSignedCallbackUrl("/api/pstn/twilio/status", { callSessionId: input.callSessionId, leg: "pstn" }, this.webhookBaseUrl);
     const requireAccept = input.calleeDisclosure?.requireAccept === true;
 
     try {

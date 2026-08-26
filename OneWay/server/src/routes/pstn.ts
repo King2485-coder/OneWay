@@ -13,7 +13,7 @@ import {
   type LiveKitSIPParticipantSnapshot,
   type MediaBridgeStatus,
 } from "../services/pstn/LiveKitSIPBridgeService";
-import { twilioWebhookMiddleware, validateTwilioProductionEnvironment } from "../services/twilio/TwilioSecurity";
+import { twilioSignedCallbackUrl, twilioWebhookMiddleware, validateTwilioProductionEnvironment } from "../services/twilio/TwilioSecurity";
 
 const startCallSchema = z.object({
   toPhoneNumber: z.string().min(1).max(64),
@@ -806,17 +806,11 @@ function twilioVoiceActionUrl(stage: string, params: Record<string, string | und
 }
 
 function twilioDisclosureAcceptUrl(callSessionId: string | undefined): string {
-  const search = new URLSearchParams();
-  if (callSessionId) search.set("callSessionId", callSessionId);
-  const suffix = search.toString() ? `?${search.toString()}` : "";
-  return `${publicWebhookBaseUrl()}/api/pstn/twilio/disclosure/accept${suffix}`;
+  return twilioSignedCallbackUrl("/api/pstn/twilio/disclosure/accept", { callSessionId }, publicWebhookBaseUrl());
 }
 
 function twilioDisclosureTimeoutUrl(callSessionId: string | undefined): string {
-  const search = new URLSearchParams();
-  if (callSessionId) search.set("callSessionId", callSessionId);
-  const suffix = search.toString() ? `?${search.toString()}` : "";
-  return `${publicWebhookBaseUrl()}/api/pstn/twilio/disclosure/timeout${suffix}`;
+  return twilioSignedCallbackUrl("/api/pstn/twilio/disclosure/timeout", { callSessionId }, publicWebhookBaseUrl());
 }
 
 function sipUriForRoom(args: {
