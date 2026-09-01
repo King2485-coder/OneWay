@@ -141,13 +141,15 @@ extension CallKitManager: CXProviderDelegate {
         #if canImport(LiveKit)
         print("🎧 CallKit didActivate")
         do {
+            AudioManager.shared.isAutomaticConfigurationEnabled = false
+            try AudioManager.shared.setEngineAvailability(.default)
             try session.setCategory(
                 .playAndRecord,
                 mode: .voiceChat,
-                options: [.allowBluetooth, .defaultToSpeaker]
+                options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP]
             )
             try session.setActive(true)
-            try AudioManager.shared.setEngineAvailability(.default)
+            try? session.overrideOutputAudioPort(.speaker)
         } catch {
             print("❌ CallKit audio activation error:", error)
         }
@@ -157,6 +159,10 @@ extension CallKitManager: CXProviderDelegate {
     func provider(_ provider: CXProvider, didDeactivate session: AVAudioSession) {
         #if canImport(LiveKit)
         print("🔇 CallKit didDeactivate")
+        guard self.activeCallUUID == nil else {
+            print("ℹ️ Skipping audio engine shutdown: call still active")
+            return
+        }
         do {
             try AudioManager.shared.setEngineAvailability(.none)
         } catch {

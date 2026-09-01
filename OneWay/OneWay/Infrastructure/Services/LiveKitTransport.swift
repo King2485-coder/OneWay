@@ -11,11 +11,17 @@ final class LiveKitTransport: CallTransport {
     var participantUpdates: AsyncStream<[CallParticipant]> { updateStream.stream }
 
     init() {
-        AudioManager.shared.audioSession.isAutomaticConfigurationEnabled = false
+        AudioManager.shared.isAutomaticConfigurationEnabled = false
         try? AudioManager.shared.setEngineAvailability(.none)
     }
 
     func connect(roomURL: URL, token: String, iceServers: [TurnServerConfiguration], video: Bool) async throws {
+        let roomName = roomURL.lastPathComponent.isEmpty ? roomURL.absoluteString : roomURL.lastPathComponent
+        print("📞 LiveKitTransport connecting room")
+        print("📞 CALL roomName:", roomName)
+        print("📞 CALL liveKitURL:", roomURL.absoluteString)
+        print("📞 CALL token exists:", !token.isEmpty)
+
         let rtcIceServers = iceServers.map {
             IceServer(urls: $0.urls, username: $0.username, credential: $0.credential)
         }
@@ -44,8 +50,21 @@ final class LiveKitTransport: CallTransport {
 
         let room = Room(delegate: self, connectOptions: connectOptions, roomOptions: roomOptions)
         try await configureAudioSession()
+        try AudioManager.shared.setEngineAvailability(.default)
+
         try await room.connect(url: roomURL.absoluteString, token: token)
+        print("✅ CALL connected")
+        print("👤 CALL local identity:", room.localParticipant.identity?.stringValue ?? "nil")
+        print("👥 CALL remote count:", room.remoteParticipants.count)
+
         try await room.localParticipant.setMicrophone(enabled: true)
+        print("🎙 CALL mic ON after connect")
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        try await room.localParticipant.setMicrophone(enabled: true)
+        print("🎙 CALL mic ON confirmed")
+        let localAudioTracks = room.localParticipant.audioTracks
+        print("🎙 local audio publication count:", localAudioTracks.count)
+
         if video {
             try await room.localParticipant.setCamera(
                 enabled: true,
@@ -55,8 +74,12 @@ final class LiveKitTransport: CallTransport {
                     fps: 24
                 )
             )
+        } else {
+            try await room.localParticipant.setCamera(enabled: false)
         }
         self.room = room
+        try? AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
+        print("🔈 CALL audio route:", AVAudioSession.sharedInstance().currentRoute)
         publishParticipants(from: room)
     }
 
@@ -87,9 +110,30 @@ final class LiveKitTransport: CallTransport {
     }
 
     private func configureAudioSession() async throws {
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth, .defaultToSpeaker])
-        try session.setActive(true)
+        let granted = await withCheckedContinuation { continuation in
+            AVAudioSession.sharedInstance().requestRecordPermission { allowed in
+                continuation.resume(returning: allowed)
+            }
+        }
+
+        guard granted else {
+            throw NSError(
+                domain: "OneWayCallAudio",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Microphone permission is required for calls."]
+            )
+        }
+
+        let audioSession = AVAudioSession.sharedInstance()
+        try audioSession.setCategory(
+            .playAndRecord,
+            mode: .voiceChat,
+            options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP]
+        )
+        try audioSession.setActive(true)
+        try? audioSession.overrideOutputAudioPort(.speaker)
+
+        print("🔈 CALL audio route:", audioSession.currentRoute)
     }
 
     private func publishParticipants(from room: Room) {
@@ -106,8 +150,38 @@ final class LiveKitTransport: CallTransport {
 }
 
 extension LiveKitTransport: RoomDelegate {
+    nonisolated func room(
+        _ room: Room,
+        participant: LocalParticipant,
+        didPublishTrack publication: LocalTrackPublication
+    ) {
+        print("🎙 CALL local published:", publication.kind)
+    }
+
+    nonisolated func room(
+        _ room: Room,
+        participant: RemoteParticipant,
+        didSubscribeTrack publication: RemoteTrackPublication,
+        track: Track
+    ) {
+        print("🔊 CALL subscribed track:", track.kind)
+        print("🔊 CALL remote:", participant.identity?.stringValue ?? "nil")
+        print("🔊 remote publication:", publication.sid?.stringValue ?? "nil")
+        print("🔊 subscribed:", publication.isSubscribed)
+        print("🔊 muted:", publication.isMuted)
+        try? AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
+        print("🔈 forced speaker after remote subscribe")
+    }
+
     nonisolated func room(_ room: Room, participantDidConnect participant: RemoteParticipant) {
         Task { @MainActor in
+            for publication in participant.audioTracks {
+                publication.set(subscribed: true)
+                print("🔊 forced subscribe audio publication")
+                print("🔊 remote publication:", publication.sid?.stringValue ?? "nil")
+                print("🔊 subscribed:", publication.isSubscribed)
+                print("🔊 muted:", publication.isMuted)
+            }
             self.publishParticipants(from: room)
         }
     }

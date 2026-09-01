@@ -50,6 +50,7 @@ final class BusinessViewModel: ObservableObject {
     @Published var selectedStorefrontID: UUID?
     @Published private(set) var mode: Mode = .idle
     @Published var prompt: String = ""
+    @Published var currentHandleText: String = ""
     @Published var errorMessage: String?
     @Published var aiHistory: [AIStoreEditSuggestion] = []
     // Debug telemetry
@@ -257,13 +258,52 @@ final class BusinessViewModel: ObservableObject {
     }
 
     func applyDraft() async {
+        await saveDraft(currentHandleText: nil)
+    }
+
+    func saveDraft(currentHandleText: String?) async {
         guard let draft else { return }
         do {
-            storefront = draft.storefront
-            try await businessService.save(storefront: draft.storefront)
+            var storefrontToSave = draft.storefront
+            let rawCurrentHandleText = currentHandleText ?? self.currentHandleText
+            let currentHandle = normalizedHandle(rawCurrentHandleText)
+            let draftHandle = normalizedHandle(draft.storefront.slug)
+            let backendHandle = normalizedHandle(storefront?.slug ?? "")
+            let payloadHandle: String
+            let sourceOfTruth: String
+
+            if !currentHandle.isEmpty && currentHandle != draftHandle {
+                payloadHandle = currentHandle
+                sourceOfTruth = "currentHandleText"
+            } else if !currentHandle.isEmpty {
+                payloadHandle = currentHandle
+                sourceOfTruth = "currentHandleText"
+            } else if !draftHandle.isEmpty {
+                payloadHandle = draftHandle
+                sourceOfTruth = "draftHandle"
+            } else {
+                payloadHandle = backendHandle
+                sourceOfTruth = "backendHandle"
+            }
+
+            if !payloadHandle.isEmpty {
+                storefrontToSave.slug = payloadHandle
+            }
+
+#if DEBUG
+            print("[StorefrontSetupSave] currentHandleText=\(rawCurrentHandleText.isEmpty ? "nil" : rawCurrentHandleText) draftHandle=\(draftHandle) payloadHandle=\(payloadHandle) backendHandle=\(backendHandle) selectedStoreName=\(storefrontToSave.business.name) sourceOfTruth=\(sourceOfTruth)")
+#endif
+
+            storefront = storefrontToSave
+            self.draft = StorefrontDraft(id: storefrontToSave.id, storefront: storefrontToSave, lastEditedAt: Date())
+            let saved = try await businessService.save(storefront: storefrontToSave)
+            applySelection(saved)
             try await reloadStorefrontsMaintainingSelection()
             markLatestSuggestionApplied()
             mode = .editing
+#if DEBUG
+            print("[StorefrontSetupSave] resultHandle=\(saved.slug) preview=https://oneway.is/shop/\(saved.slug)")
+#endif
         } catch {
             errorMessage = "Failed to apply draft."
         }
@@ -378,13 +418,15 @@ final class BusinessViewModel: ObservableObject {
 
     private func persistDraft() async throws {
         guard let draft else { return }
-        try await businessService.save(storefront: draft.storefront)
+        let saved = try await businessService.save(storefront: draft.storefront)
+        applySelection(saved)
         try await reloadStorefrontsMaintainingSelection()
     }
 
     private func persistStorefront() async throws {
         guard let storefront else { return }
-        try await businessService.save(storefront: storefront)
+        let saved = try await businessService.save(storefront: storefront)
+        applySelection(saved)
         try await reloadStorefrontsMaintainingSelection()
     }
 
@@ -446,6 +488,21 @@ final class BusinessViewModel: ObservableObject {
         applySelection(store)
     }
 
+    func updateDraftHandleFromCurrentText(_ currentHandleText: String) {
+        let currentHandle = normalizedHandle(currentHandleText)
+        self.currentHandleText = currentHandle
+        guard !currentHandle.isEmpty else { return }
+        if var draft {
+            draft.storefront.slug = currentHandle
+            draft.lastEditedAt = Date()
+            self.draft = draft
+        }
+        if var storefront {
+            storefront.slug = currentHandle
+            self.storefront = storefront
+        }
+    }
+
     func deleteStorefront(_ id: UUID) async {
         do {
             try await businessService.delete(storefrontID: id)
@@ -473,11 +530,18 @@ final class BusinessViewModel: ObservableObject {
         }
     }
 
+    private func normalizedHandle(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber || $0 == "-" }
+    }
+
     private func applySelection(_ store: Storefront) {
         storefront = store
         selectedStorefrontID = store.id
         publishedStorefront = store.isPublished ? store : nil
         draft = StorefrontDraft(id: store.id, storefront: store, lastEditedAt: Date())
+        currentHandleText = normalizedHandle(store.slug)
         mode = .editing
     }
 

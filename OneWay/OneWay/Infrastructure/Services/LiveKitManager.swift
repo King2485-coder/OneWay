@@ -63,6 +63,7 @@ final class LiveKitManager: ObservableObject {
     }
 
     func startCall(
+        print("⚠️ Deprecated LiveKitManager call path should not be used")
         roomName: String,
         userId: String,
         calleeUserId: String? = nil,
@@ -100,6 +101,7 @@ final class LiveKitManager: ObservableObject {
     }
 
     func connect(roomName: String, userId: String) async throws {
+        print("⚠️ Deprecated LiveKitManager call path should not be used")
         guard !roomName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw LiveKitManagerError.missingRoom
         }

@@ -121,7 +121,7 @@ concurrent allocations to avoid running out under churn.
 OneWay uses **TURN REST API** auth (`use-auth-secret` + `static-auth-secret`).
 The flow:
 
-1. iOS hits `GET https://api.oneway.app/api/turn-credentials`.
+1. iOS hits `GET https://api.oneway.is/api/turn-credentials`.
 2. Backend computes:
    - `username = "<unix_expiry>:<userId>"`
    - `credential = base64(HMAC-SHA1(SHARED_SECRET, username))`
@@ -375,7 +375,7 @@ sed -i "s/^TURN_SHARED_SECRET=.*/TURN_SHARED_SECRET=$NEW/" .env
 ./deploy.sh
 docker compose up -d
 
-# 3. Update backend (whatever serves api.oneway.app)
+# 3. Update backend (whatever serves api.oneway.is)
 #    Set TURN_SHARED_SECRET=$NEW in your secrets manager and redeploy.
 #    Coordinate with step 2 — there's a brief window where outstanding
 #    creds become invalid. Active calls already on the wire are unaffected.

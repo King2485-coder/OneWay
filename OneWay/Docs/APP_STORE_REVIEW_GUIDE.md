@@ -20,7 +20,7 @@ Paste this into the App Review notes field:
 This app uses CallKit and PushKit strictly for real-time voice/video calls. VoIP pushes are used only to present incoming calls immediately. No background data or messaging is handled through PushKit.
 
 Backend:
-https://api.oneway.app
+https://api.oneway.is
 
 LiveKit is used for real-time communication.
 
