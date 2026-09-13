@@ -65,6 +65,7 @@ import { isComplianceLayerEnabled, oneWayBankRouter } from "./routes/oneWayBank"
 import { stripeWebhooksRouter } from "./routes/stripeWebhooks";
 import { serviceOrdersRouter } from "./routes/serviceOrders";
 import { safetyRouter } from "./routes/safety";
+import { growthEventsRouter } from "./routes/growthEvents";
 
 import { CallRegistry } from "./services/CallRegistry";
 import type { ICallRegistry } from "./services/CallRegistry";
@@ -781,6 +782,7 @@ mountRouter("/api/identity", identityRouter());
 mountRouter("/api/messages", messagesRouter({ realtime: messageRealtime }));
 mountRouter("/api/shops/messages", shopMessagesRouter({ prisma }));
 mountRouter("/api/platform", platformRouter({ prisma }));
+mountRouter("/api/growth/events", growthEventsRouter({ prisma }));
 mountRouter("/api/twilio", twilioRouter());
 mountRouter("/api/webhooks", stripeWebhooksRouter({ prisma }));
 mountRouter("/api/service-orders", serviceOrdersRouter({ prisma }));

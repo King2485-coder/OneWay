@@ -62,3 +62,5 @@ services:
         sync: false
       - key: SENTRY_DSN
         sync: false
+      - key: GROWTH_EVENTS_EXPORT_TOKEN
+        sync: false
