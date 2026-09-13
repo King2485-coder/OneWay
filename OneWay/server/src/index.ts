@@ -29,6 +29,7 @@ import { storefrontsRouter } from "./routes/storefronts";
 import { turnRouter } from "./routes/turn";
 import { uploadsRouter } from "./routes/uploads";
 import { voicemailRouter } from "./routes/voicemail";
+import { growthEventsRouter } from "./routes/growthEvents";
 
 import { CallRegistry } from "./services/CallRegistry";
 import type { ICallRegistry } from "./services/CallRegistry";
@@ -64,6 +65,8 @@ app.use(cors({
 }));
 app.use(express.json({ limit: "10mb" }));
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+
+app.use("/api/growth/events", growthEventsRouter({ prisma }));
 
 // -------------------------------------------------------------------------
 // Health
