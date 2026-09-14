@@ -25,6 +25,12 @@ export const growthEventNames = [
   "referral_activated",
   "activation_completed",
   "account_deleted",
+  "web_page_view",
+  "feature_page_view",
+  "pricing_page_view",
+  "learn_more_click",
+  "download_cta_click",
+  "app_store_cta_click",
 ] as const;
 
 export type GrowthEventName = (typeof growthEventNames)[number];
@@ -64,6 +70,8 @@ const sensitiveKeyPatterns = [
   /payment|card|bank/i,
   /customer/i,
   /private.*url|history/i,
+  /user.*agent/i,
+  /ip/i,
 ];
 
 export type GrowthEventInput = {
@@ -160,6 +168,41 @@ export function validateGrowthEventPayload(body: unknown, authenticatedSubjectKe
       schemaVersion: typeof input.schemaVersion === "string" ? input.schemaVersion.slice(0, 16) : "1",
       metadata,
       attribution,
+      isTest: input.isTest === true || metadata.is_test === true || metadata.test === true,
+    },
+  };
+}
+
+export function validateWebAnalyticsPayload(body: unknown): { ok: true; event: GrowthEventInput } | { ok: false; status: number; error: string } {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return { ok: false, status: 400, error: "invalid_schema" };
+  const input = body as Record<string, unknown>;
+  const eventId = String(input.eventId ?? "").trim();
+  const eventName = String(input.eventName ?? "").trim() as GrowthEventName;
+  const occurredAt = input.occurredAt ? new Date(String(input.occurredAt)) : new Date();
+  const webEventNames = new Set<GrowthEventName>(["web_page_view", "feature_page_view", "pricing_page_view", "learn_more_click", "download_cta_click", "app_store_cta_click"]);
+  const subjectKey = String(input.subjectKey ?? input.anonymousUserKey ?? "").trim();
+  if (!/^[A-Za-z0-9:_-]{8,180}$/.test(eventId)) return { ok: false, status: 400, error: "invalid_event_id" };
+  if (!webEventNames.has(eventName)) return { ok: false, status: 400, error: "unknown_web_event_name" };
+  if (!/^[A-Za-z0-9:_-]{8,160}$/.test(subjectKey) || /@|\+?\d{7,}/.test(subjectKey)) return { ok: false, status: 400, error: "invalid_subject_key" };
+  if (Number.isNaN(occurredAt.getTime())) return { ok: false, status: 400, error: "invalid_timestamp" };
+  const ageMs = Math.abs(Date.now() - occurredAt.getTime());
+  if (ageMs > 7 * 86_400_000) return { ok: false, status: 400, error: "timestamp_out_of_range" };
+  const { metadata, rejectedKeys } = sanitizeGrowthMetadata(input.metadata);
+  if (rejectedKeys.length) return { ok: false, status: 400, error: "sensitive_metadata_rejected" };
+  return {
+    ok: true,
+    event: {
+      eventId,
+      eventName,
+      subjectKey,
+      sessionKey: typeof input.sessionKey === "string" ? input.sessionKey.slice(0, 128) : null,
+      occurredAt,
+      sourcePlatform: "web",
+      appVersion: null,
+      build: null,
+      schemaVersion: "web_analytics_v1",
+      metadata,
+      attribution: sanitizeAttribution(input.attribution ?? input.metadata),
       isTest: input.isTest === true || metadata.is_test === true || metadata.test === true,
     },
   };
