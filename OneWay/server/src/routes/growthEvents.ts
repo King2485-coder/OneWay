@@ -2,7 +2,7 @@ import express from "express";
 import rateLimit from "express-rate-limit";
 import type { PrismaClient } from "@prisma/client";
 import { authMiddleware, type AuthenticatedRequest } from "../middleware/auth";
-import { ensureGrowthEventTables, storeGrowthEvent, validateGrowthEventPayload } from "../services/growthEvents";
+import { ensureGrowthEventTables, storeGrowthEvent, validateGrowthEventPayload, validateWebAnalyticsPayload } from "../services/growthEvents";
 
 const relayLimiter = rateLimit({
   windowMs: 60_000,
@@ -30,6 +30,24 @@ export function growthEventsRouter({ prisma }: { prisma: PrismaClient }): expres
       res.status(200).json({ status: result.status, activationCreated: result.activationCreated });
     } catch {
       res.status(500).json({ error: "growth_event_store_failed" });
+    }
+  });
+
+  router.post("/web", relayLimiter, async (req, res) => {
+    if (JSON.stringify(req.body ?? {}).length > 6_144) {
+      res.status(413).json({ error: "payload_too_large" });
+      return;
+    }
+    const parsed = validateWebAnalyticsPayload(req.body);
+    if (!parsed.ok) {
+      res.status(parsed.status).json({ error: parsed.error });
+      return;
+    }
+    try {
+      const result = await storeGrowthEvent(prisma, parsed.event);
+      res.status(200).json({ status: result.status, activationCreated: false });
+    } catch {
+      res.status(500).json({ error: "web_analytics_store_failed" });
     }
   });
 
