@@ -38,7 +38,7 @@ services:
       - key: PSTN_PROVIDER
         value: twilio
       - key: FIELD_ENCRYPTION_ENABLED
-        value: "true"
+        value: "false"
       - key: JWT_SECRET
         sync: false
       - key: LIVEKIT_URL
@@ -48,16 +48,6 @@ services:
       - key: LIVEKIT_API_SECRET
         sync: false
       - key: LIVEKIT_SIP_TRUNK_ID
-        sync: false
-      - key: FIELD_ENCRYPTION_MASTER_KEY_BASE64
-        sync: false
-      - key: FIELD_ENCRYPTION_KEY_ID
-        sync: false
-      - key: APNS_KEY_ID
-        sync: false
-      - key: APNS_TEAM_ID
-        sync: false
-      - key: APNS_KEY_P8_BASE64
         sync: false
       - key: STRIPE_SECRET_KEY
         sync: false
@@ -72,16 +62,4 @@ services:
       - key: TWILIO_MESSAGING_SERVICE_SID
         sync: false
       - key: TWILIO_SIP_TRUNK_SID
-        sync: false
-      - key: MAILGUN_API_KEY
-        sync: false
-      - key: MAILGUN_WEBHOOK_SIGNING_KEY
-        sync: false
-      - key: ONEWAY_EMAIL_DOMAIN
-        sync: false
-      - key: ONEWAY_EMAIL_FROM_ADDRESS
-        sync: false
-      - key: SENTRY_DSN
-        sync: false
-      - key: GROWTH_EVENTS_EXPORT_TOKEN
         sync: false
