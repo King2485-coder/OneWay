@@ -10,7 +10,6 @@ services:
     dockerfilePath: ./OneWay/server/Dockerfile
     healthCheckPath: /health
     autoDeployTrigger: checksPass
-    maxShutdownDelaySeconds: 60
     domains:
       - api.oneway.is
     disk:
