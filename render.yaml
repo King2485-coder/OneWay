@@ -63,3 +63,9 @@ services:
         sync: false
       - key: TWILIO_SIP_TRUNK_SID
         sync: false
+      - key: TWILIO_API_KEY_SID
+        sync: false
+      - key: TWILIO_API_KEY_SECRET
+        sync: false
+      - key: TWILIO_TWIML_APP_SID
+        sync: false
