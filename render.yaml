@@ -5,13 +5,11 @@ services:
     plan: standard
     region: oregon
     repo: https://github.com/King2485-coder/OneWay
-    branch: main
+    branch: codex/render-replacement
     dockerContext: ./OneWay/server
     dockerfilePath: ./OneWay/server/Dockerfile
     healthCheckPath: /health
     autoDeployTrigger: checksPass
-    domains:
-      - api.oneway.is
     disk:
       name: oneway-data
       mountPath: /app/data
