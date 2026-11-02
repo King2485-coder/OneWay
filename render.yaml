@@ -35,6 +35,10 @@ services:
         value: https://api.oneway.is
       - key: TRUST_PROXY
         value: "true"
+      - key: PSTN_PROVIDER
+        value: twilio
+      - key: FIELD_ENCRYPTION_ENABLED
+        value: "true"
       - key: JWT_SECRET
         sync: false
       - key: LIVEKIT_URL
@@ -42,6 +46,12 @@ services:
       - key: LIVEKIT_API_KEY
         sync: false
       - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: LIVEKIT_SIP_TRUNK_ID
+        sync: false
+      - key: FIELD_ENCRYPTION_MASTER_KEY_BASE64
+        sync: false
+      - key: FIELD_ENCRYPTION_KEY_ID
         sync: false
       - key: APNS_KEY_ID
         sync: false
@@ -56,6 +66,20 @@ services:
       - key: TWILIO_ACCOUNT_SID
         sync: false
       - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false
+      - key: TWILIO_MESSAGING_SERVICE_SID
+        sync: false
+      - key: TWILIO_SIP_TRUNK_SID
+        sync: false
+      - key: MAILGUN_API_KEY
+        sync: false
+      - key: MAILGUN_WEBHOOK_SIGNING_KEY
+        sync: false
+      - key: ONEWAY_EMAIL_DOMAIN
+        sync: false
+      - key: ONEWAY_EMAIL_FROM_ADDRESS
         sync: false
       - key: SENTRY_DSN
         sync: false
