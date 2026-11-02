@@ -10,9 +10,6 @@ services:
     dockerfilePath: ./OneWay/server/Dockerfile
     healthCheckPath: /health
     autoDeployTrigger: commit
-    maxShutdownDelaySeconds: 60
-    domains:
-      - api.oneway.is
     disk:
       name: oneway-data
       mountPath: /app/data
