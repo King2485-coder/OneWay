@@ -52,3 +52,8 @@ Open `OneWay/OneWay.xcodeproj` in Xcode and run the **OneWay** target on simulat
 - Connect CallService to WebRTC stack and signaling backend.
 - Add streaming/iterative AI edits (section-level improvements) to the backend and propagate into `Storefront` model.
 - Add tests for service health checks and state flows.
+
+
+## Open-source license
+
+OneWay-owned original source code is licensed under **AGPL-3.0-only**. See [LICENSE](LICENSE) and [OPEN_SOURCE.md](OPEN_SOURCE.md) for scope, third-party notices, and distribution considerations. This licensing change does not establish production end-to-end encryption or release approval.
