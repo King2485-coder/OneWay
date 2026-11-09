@@ -17,17 +17,26 @@ final class ChatThreadViewModel: ObservableObject {
     @Published private(set) var isPeerTyping = false
     @Published var errorMessage: String?
     @Published var replyToMessage: ChatMessage?
+    @Published private(set) var sentinelAssessment: SentinelAssessment?
 
     let chat: ChatSummary
     private let messagingService: MessagingService
     private let friendService: FriendService
     private let callService: CallService
+    private let sentinel: any SentinelAnalyzing
 
-    init(chat: ChatSummary, messagingService: MessagingService, friendService: FriendService, callService: CallService) {
+    init(
+        chat: ChatSummary,
+        messagingService: MessagingService,
+        friendService: FriendService,
+        callService: CallService,
+        sentinel: any SentinelAnalyzing = OnDeviceSentinelService()
+    ) {
         self.chat = chat
         self.messagingService = messagingService
         self.friendService = friendService
         self.callService = callService
+        self.sentinel = sentinel
     }
 
     var filteredMessages: [ChatMessage] {
@@ -45,13 +54,35 @@ final class ChatThreadViewModel: ObservableObject {
         do {
             messages = try await messagingService.fetchMessages(chatID: chat.id)
             errorMessage = nil
+            await inspectRecentMessages()
         } catch {
             errorMessage = "Unable to load messages."
         }
     }
 
     func sendMessage() async {
-        let text = composerText
+        let text = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let messageAssessment = await sentinel.analyzeMessage(text)
+        if messageAssessment.riskScore >= 20 {
+            sentinelAssessment = messageAssessment
+            errorMessage = sentinelMessage(for: messageAssessment)
+            return
+        }
+
+        if let attachment = pendingAttachment {
+            let attachmentAssessment = await sentinel.analyzeFile(
+                name: attachment.fileName,
+                mimeType: nil,
+                bytes: Data()
+            )
+            if attachmentAssessment.riskScore >= 20 {
+                sentinelAssessment = attachmentAssessment
+                errorMessage = sentinelMessage(for: attachmentAssessment)
+                return
+            }
+        }
+
         composerText = ""
 
         do {
@@ -85,7 +116,9 @@ final class ChatThreadViewModel: ObservableObject {
             }
 
             messages = try await messagingService.fetchMessages(chatID: chat.id)
+            sentinelAssessment = nil
             errorMessage = nil
+            await inspectRecentMessages()
             await simulateTypingPulse()
         } catch {
             errorMessage = "Message not sent."
@@ -93,6 +126,13 @@ final class ChatThreadViewModel: ObservableObject {
     }
 
     func retry(_ message: ChatMessage) async {
+        let assessment = await sentinel.analyzeMessage(message.body)
+        guard assessment.riskScore < 20 else {
+            sentinelAssessment = assessment
+            errorMessage = sentinelMessage(for: assessment)
+            return
+        }
+
         do {
             try await messagingService.retryMessage(messageID: message.id, chatID: chat.id)
             messages = try await messagingService.fetchMessages(chatID: chat.id)
@@ -125,6 +165,13 @@ final class ChatThreadViewModel: ObservableObject {
     }
 
     func forward(_ message: ChatMessage, to chatID: UUID) async {
+        let assessment = await sentinel.analyzeMessage(message.body)
+        guard assessment.riskScore < 20 else {
+            sentinelAssessment = assessment
+            errorMessage = sentinelMessage(for: assessment)
+            return
+        }
+
         do {
             try await messagingService.forwardMessage(messageID: message.id, fromChatID: chat.id, toChatID: chatID)
             errorMessage = nil
@@ -177,6 +224,45 @@ final class ChatThreadViewModel: ObservableObject {
             // Best-effort: if teardown fails, still dismiss UI.
         }
         endCallPreview()
+    }
+
+    private func inspectRecentMessages() async {
+        var highest: SentinelAssessment?
+
+        for message in messages.suffix(20) {
+            let assessment = await sentinel.analyzeMessage(message.body)
+            if assessment.riskScore > (highest?.riskScore ?? 0) {
+                highest = assessment
+            }
+        }
+
+        guard let highest, highest.riskScore >= 20 else {
+            sentinelAssessment = nil
+            return
+        }
+
+        sentinelAssessment = highest
+        errorMessage = sentinelMessage(for: highest)
+    }
+
+    private func sentinelMessage(for assessment: SentinelAssessment) -> String {
+        let reason = assessment.signals.first?.summary ?? "Sentinel detected suspicious activity."
+        switch assessment.recommendedAction {
+        case .allow:
+            return reason
+        case .warn:
+            return "OneWay Sentinel warning: \(reason) Review the message before continuing."
+        case .requireFaceID, .requirePasskey, .requireTrustedDeviceApproval:
+            return "OneWay Sentinel blocked this action pending identity verification. \(reason)"
+        case .quarantine:
+            return "OneWay Sentinel quarantined this content. \(reason)"
+        case .rateLimit:
+            return "OneWay Sentinel temporarily slowed this action because it resembles automated abuse. \(reason)"
+        case .temporarilySuspend:
+            return "OneWay Sentinel temporarily suspended this action. \(reason)"
+        case .humanReview:
+            return "OneWay Sentinel stopped this high-risk action. \(reason)"
+        }
     }
 
     private func simulateTypingPulse() async {
