@@ -85,7 +85,7 @@ struct AIStoreAssistantView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Welcome to your AI storefront builder.")
                 .font(.headline)
-            Text("I’ll guide you through quick steps and build a publishable store inside OneWay.")
+            Text("I’ll guide you through quick steps and build a launch-ready store inside OneWay.")
                 .foregroundStyle(.secondary)
         }
     }
@@ -94,13 +94,13 @@ struct AIStoreAssistantView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Store basics").font(.headline)
             TextField("Store name", text: $viewModel.builder.storeName)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(OneWayFormFieldStyle())
             TextField("Tagline", text: $viewModel.builder.tagline)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(OneWayFormFieldStyle())
             TextField("Business category", text: $viewModel.builder.category)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(OneWayFormFieldStyle())
             TextField("Preferred colors (comma-separated hex or names)", text: $viewModel.builder.preferredColors)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(OneWayFormFieldStyle())
         }
     }
 
@@ -134,7 +134,7 @@ struct AIStoreAssistantView: View {
                 Button {
                     viewModel.addProductInput()
                 } label: {
-                    Label("Add", systemImage: "plus.circle.fill")
+                    OneWayResolvedLabel("Add", systemImage: "plus.circle.fill")
                 }
                 .buttonStyle(.bordered)
             }
@@ -148,24 +148,24 @@ struct AIStoreAssistantView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         TextField("Name", text: $product.name)
-                            .textFieldStyle(.roundedBorder)
+                            .textFieldStyle(OneWayFormFieldStyle())
                         TextField("Price", text: $product.price)
-                            .textFieldStyle(.roundedBorder)
+                            .textFieldStyle(OneWayFormFieldStyle())
                             .frame(width: 100)
                         Button(role: .destructive) {
                             viewModel.removeProductInput(product.id)
                         } label: {
-                            Image(systemName: "trash")
+                            OneWayResolvedIcon(systemName: "trash")
                         }
                     }
                     TextField("Short description", text: $product.description, axis: .vertical)
                         .lineLimit(1...3)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(OneWayFormFieldStyle())
                     HStack {
                         Button {
                             pendingImageProductID = product.id
                         } label: {
-                            Label(product.imageData == nil ? "Upload image" : "Replace image", systemImage: "photo.on.rectangle")
+                            OneWayResolvedLabel(product.imageData == nil ? "Upload image" : "Replace image", systemImage: "photo.on.rectangle")
                         }
                         if uploadProgress > 0 && pendingImageProductID == product.id {
                             ProgressView(value: uploadProgress)
@@ -223,7 +223,7 @@ struct AIStoreAssistantView: View {
                         isGenerating = false
                     }
                 } label: {
-                    Label("Build storefront", systemImage: "sparkles")
+                    OneWayResolvedLabel("Build storefront", systemImage: "sparkles")
                 }
                 .buttonStyle(.borderedProminent)
             }

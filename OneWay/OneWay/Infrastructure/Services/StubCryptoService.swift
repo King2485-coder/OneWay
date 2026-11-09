@@ -1,37 +1,32 @@
 import Foundation
 
-actor StubCryptoService: CryptoService {
+enum OneWayCryptoUnavailableError: LocalizedError, Equatable {
+    case cryptoNotImplemented
+
+    var errorDescription: String? {
+        "Secure message encryption is not implemented. Plaintext fallback is prohibited."
+    }
+}
+
+/// Explicit fail-closed placeholder until an approved protocol implementation
+/// is integrated. Encoding is never represented as encryption capability.
+actor UnavailableCryptoService: CryptoService {
     func ensureIdentity() async throws -> CryptoIdentity {
-        CryptoIdentity(fingerprint: "STUB-FPR-\(UUID().uuidString.prefix(8))")
+        throw OneWayCryptoUnavailableError.cryptoNotImplemented
     }
 
     func encrypt(message: PlaintextMessage, for recipient: UserProfile, context: MessageContext) async throws -> EncryptedMessage {
-        let fakeCipher = Data(message.body.utf8).base64EncodedData()
-        let payload = EncryptedPayload(ciphertext: fakeCipher, nonce: Data(UUID().uuidString.utf8), associatedData: nil)
-        return EncryptedMessage(
-            id: message.id,
-            chatID: message.chatID,
-            senderID: message.senderID,
-            encryptedBody: payload,
-            attachment: message.attachment,
-            sentAt: Date(),
-            expiresAt: message.expiresAt
-        )
+        _ = (message, recipient, context)
+        throw OneWayCryptoUnavailableError.cryptoNotImplemented
     }
 
     func decrypt(_ message: EncryptedMessage) async throws -> PlaintextMessage {
-        let body = String(data: message.encryptedBody.ciphertext, encoding: .utf8) ?? "[ciphertext]"
-        return PlaintextMessage(
-            id: message.id,
-            chatID: message.chatID,
-            senderID: message.senderID,
-            body: body,
-            attachment: message.attachment,
-            expiresAt: message.expiresAt
-        )
+        _ = message
+        throw OneWayCryptoUnavailableError.cryptoNotImplemented
     }
 
     func groupSession(for groupID: UUID) async throws -> GroupCryptoSession {
-        GroupCryptoSession(groupID: groupID, epoch: 1)
+        _ = groupID
+        throw OneWayCryptoUnavailableError.cryptoNotImplemented
     }
 }

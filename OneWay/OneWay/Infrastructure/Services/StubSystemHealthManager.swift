@@ -1,25 +1,47 @@
 import Foundation
 
-final class StubSystemHealthManager: SystemHealthManager {
+/// Reports only checks that are actually performed. It deliberately does not
+/// infer the health of auth, crypto, messaging, calls, or storage from app
+/// startup; those services need their own verified probes before appearing in
+/// Diagnostics.
+final class NetworkSystemHealthManager: SystemHealthManager {
     private var statuses: [ServiceHealthStatus] = []
 
-    init() {
-        let now = Date()
-        statuses = [
-            ServiceHealthStatus(serviceName: "AuthService", isActive: true, lastCheckedAt: now, lastSyncAt: now, lastError: nil, dependencies: []),
-            ServiceHealthStatus(serviceName: "CryptoService", isActive: true, lastCheckedAt: now, lastSyncAt: now, lastError: nil, dependencies: []),
-            ServiceHealthStatus(serviceName: "MessagingService", isActive: true, lastCheckedAt: now, lastSyncAt: now, lastError: nil, dependencies: ["CryptoService", "AuthService"]),
-            ServiceHealthStatus(serviceName: "CommunityService", isActive: true, lastCheckedAt: now, lastSyncAt: now, lastError: nil, dependencies: ["AuthService"]),
-            ServiceHealthStatus(serviceName: "CallService", isActive: true, lastCheckedAt: now, lastSyncAt: now, lastError: nil, dependencies: ["AuthService"]),
-            ServiceHealthStatus(serviceName: "BusinessService", isActive: true, lastCheckedAt: now, lastSyncAt: now, lastError: nil, dependencies: ["AuthService"]),
-            ServiceHealthStatus(serviceName: "AIStorefrontService", isActive: true, lastCheckedAt: now, lastSyncAt: now, lastError: nil, dependencies: []),
-            ServiceHealthStatus(serviceName: "NotificationService", isActive: true, lastCheckedAt: now, lastSyncAt: now, lastError: nil, dependencies: []),
-            ServiceHealthStatus(serviceName: "StorageService", isActive: true, lastCheckedAt: now, lastSyncAt: now, lastError: nil, dependencies: [])
-        ]
-    }
-
     func runStartupChecks() async -> [ServiceHealthStatus] {
-        statuses
+        let checkedAt = Date()
+        let state = await APIClient.shared.health()
+        let status: ServiceHealthStatus
+        switch state {
+        case .connected:
+            status = ServiceHealthStatus(
+                serviceName: "OneWay API",
+                isActive: true,
+                lastCheckedAt: checkedAt,
+                lastSyncAt: checkedAt,
+                lastError: nil,
+                dependencies: []
+            )
+        case .checking:
+            status = ServiceHealthStatus(
+                serviceName: "OneWay API",
+                isActive: false,
+                lastCheckedAt: checkedAt,
+                lastSyncAt: nil,
+                lastError: "Health check did not finish.",
+                dependencies: []
+            )
+        case .unreachable(let reason):
+            status = ServiceHealthStatus(
+                serviceName: "OneWay API",
+                isActive: false,
+                lastCheckedAt: checkedAt,
+                lastSyncAt: nil,
+                lastError: reason,
+                dependencies: []
+            )
+        }
+        statuses = [status]
+        return statuses
     }
 
     func latestStatuses() -> [ServiceHealthStatus] {

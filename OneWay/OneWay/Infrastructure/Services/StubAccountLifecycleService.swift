@@ -26,11 +26,17 @@ final class StubAccountLifecycleService: AccountLifecycleService {
     }
 
     func deleteAccountBestEffort() async throws {
-        localPersistence.clear()
+        // Test service mirrors production ordering: a server/auth operation
+        // must succeed before any local account data is destroyed.
+        try await authService.signOut()
+        await MainActor.run {
+            localPersistence.clear()
+        }
         await messagingService.wipeAllData()
         await friendService.wipeAllData()
         await storyService.wipeAllData()
-        importedContactsStore.clear()
-        try await authService.signOut()
+        await MainActor.run {
+            importedContactsStore.clear()
+        }
     }
 }

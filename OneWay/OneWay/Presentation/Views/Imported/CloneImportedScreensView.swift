@@ -136,7 +136,7 @@ struct CloneProfilePictureView: View {
                             .scaledToFill()
                             .clipShape(Circle())
                     } else {
-                        Image(systemName: "person.crop.circle.fill")
+                        OneWayResolvedIcon(systemName: "person.crop.circle.fill")
                             .font(.system(size: 84))
                             .foregroundStyle(Theme.textSecondary)
                     }
@@ -171,7 +171,7 @@ struct CloneContactProfilePictureView: View {
                 .fill(Theme.glassSurface)
                 .frame(width: 210, height: 210)
                 .overlay {
-                    Image(systemName: "person.fill")
+                    OneWayResolvedIcon(systemName: "person.fill")
                         .font(.system(size: 100))
                         .foregroundStyle(Theme.textSecondary)
                 }
@@ -193,14 +193,14 @@ struct CloneContactDetailsView: View {
     var body: some View {
         List {
             Section("Contact") {
-                Label("Friend", systemImage: "person.crop.circle")
-                Label("Online", systemImage: "circle.fill")
+                OneWayResolvedLabel("Friend", systemImage: "person.crop.circle")
+                OneWayResolvedLabel("Online", systemImage: "circle.fill")
                     .foregroundStyle(.green)
             }
             Section("Actions") {
                 NavigationLink("Message") { FriendsListView(friendService: friendService) }
-                Label("Voice Call", systemImage: "phone.fill")
-                Label("Video Call", systemImage: "video.fill")
+                OneWayResolvedLabel("Voice Call", systemImage: "phone.fill")
+                OneWayResolvedLabel("Video Call", systemImage: "video.fill")
             }
             Section("Media") {
                 NavigationLink("View All Media") { CloneAllMediaView() }
@@ -242,7 +242,7 @@ struct CloneSpecificMediaView: View {
                 .fill(Theme.glassSurface)
                 .frame(height: 260)
                 .overlay {
-                    Image(systemName: "photo.on.rectangle.angled")
+                    OneWayResolvedIcon(systemName: "photo.on.rectangle.angled")
                         .font(.system(size: 56))
                         .foregroundStyle(Theme.textSecondary)
                 }
@@ -358,9 +358,9 @@ struct CloneNewGroupView: View {
                 Toggle("Disappearing Messages", isOn: $disappearing)
             }
             Section("Members") {
-                Label("Alex", systemImage: "person")
-                Label("Priya", systemImage: "person")
-                Label("Jordan", systemImage: "person")
+                OneWayResolvedLabel("Alex", systemImage: "person")
+                OneWayResolvedLabel("Priya", systemImage: "person")
+                OneWayResolvedLabel("Jordan", systemImage: "person")
             }
             Section {
                 Button("Create Group") {
@@ -451,7 +451,7 @@ struct CloneTakePhotoView: View {
                             .scaledToFill()
                             .clipShape(RoundedRectangle(cornerRadius: 20))
                     } else {
-                        Image(systemName: "camera.fill")
+                        OneWayResolvedIcon(systemName: "camera.fill")
                             .font(.system(size: 60))
                             .foregroundStyle(Theme.textSecondary)
                     }
@@ -515,10 +515,10 @@ struct CloneFeatureRoadmapView: View {
     var body: some View {
         List {
             Section("Ready Next") {
-                Label("Live backend auth provider", systemImage: "checkmark.seal")
-                Label("Real camera capture session", systemImage: "camera.metering.center.weighted")
-                Label("End-to-end message sync", systemImage: "arrow.triangle.2.circlepath")
-                Label("Encryption key exchange", systemImage: "lock.shield")
+                OneWayResolvedLabel("Live backend auth provider", systemImage: "checkmark.seal")
+                OneWayResolvedLabel("Real camera capture session", systemImage: "camera.metering.center.weighted")
+                OneWayResolvedLabel("Message sync roadmap", systemImage: "arrow.triangle.2.circlepath")
+                OneWayResolvedLabel("Encryption key exchange", systemImage: "lock.shield")
             }
         }
         .navigationTitle("NotImplementedYet")

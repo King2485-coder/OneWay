@@ -1,24 +1,29 @@
 import Foundation
 
-actor StubBackupService: BackupService {
-    private var optedIn = false
-    private var latestBackupID: String?
+enum OneWayBackupUnavailableError: LocalizedError, Equatable {
+    case notSecureForE2EE
 
+    var errorDescription: String? {
+        "Encrypted backup is not implemented. No backup artifact was created."
+    }
+}
+
+/// Fail-closed placeholder. Future schema hooks live in the security design;
+/// this service cannot opt in, create an artifact, or claim secure recovery.
+actor UnavailableBackupService: BackupService {
     func isOptedIn() async throws -> Bool {
-        optedIn
+        false
     }
 
     func setOptIn(_ value: Bool) async throws {
-        optedIn = value
+        if value { throw OneWayBackupUnavailableError.notSecureForE2EE }
     }
 
-    func createEncryptedBackup() async throws -> String {
-        let backupID = "backup-\(UUID().uuidString.prefix(8))"
-        latestBackupID = String(backupID)
-        return String(backupID)
+    func createBackup() async throws -> String {
+        throw OneWayBackupUnavailableError.notSecureForE2EE
     }
 
     func restoreLatestBackup() async throws {
-        _ = latestBackupID
+        throw OneWayBackupUnavailableError.notSecureForE2EE
     }
 }

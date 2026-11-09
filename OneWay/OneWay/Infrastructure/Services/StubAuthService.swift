@@ -1,21 +1,18 @@
 import Foundation
 
 final class StubAuthService: AuthService {
-    private var signedInUser: UserProfile? = UserProfile(userID: UUID(), displayName: "You")
-    private var dummyCounter = 1
-
     func currentUser() async throws -> UserProfile? {
-        signedInUser
+        guard AuthTokenStore.shared.token() != nil else { return nil }
+        let user = try await AuthAPIService.shared.currentAuthenticatedUser()
+        guard let id = UUID(uuidString: user.userId) else { return nil }
+        return UserProfile(userID: id, displayName: user.displayName)
     }
 
     func signInAnonymously() async throws -> UserProfile {
-        let user = UserProfile(userID: UUID(), displayName: "Dummy User \(dummyCounter)")
-        dummyCounter += 1
-        signedInUser = user
-        return user
+        throw NSError(domain: "OneWay.Auth", code: 1, userInfo: [NSLocalizedDescriptionKey: "Please create an account or sign in."])
     }
 
     func signOut() async throws {
-        signedInUser = nil
+        AuthTokenStore.shared.clearSession()
     }
 }

@@ -10,6 +10,9 @@ struct FriendsListView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: FriendsListViewModel
     @State private var activeCall: FriendCallSession?
+    @State private var isShowingAddFriend = false
+    @State private var editingFriend: FriendConnection?
+    @State private var deletingFriend: FriendConnection?
 
     init(friendService: FriendService) {
         _viewModel = StateObject(wrappedValue: FriendsListViewModel(friendService: friendService))
@@ -40,9 +43,16 @@ struct FriendsListView: View {
                                 emptyState("No connected friends yet.")
                             } else {
                                 ForEach(viewModel.connectedFriends) { friend in
-                                    FriendRow(friend: friend, onAccept: nil) { callType in
-                                        Task { await startCall(with: friend, type: callType) }
-                                    }
+                                    FriendRow(
+                                        friend: friend,
+                                        onAccept: nil,
+                                        onDecline: nil,
+                                        onEdit: { editingFriend = friend },
+                                        onDelete: { deletingFriend = friend },
+                                        onStartCall: { callType in
+                                            Task { await startCall(with: friend, type: callType) }
+                                        }
+                                    )
                                 }
                             }
                         }
@@ -52,13 +62,29 @@ struct FriendsListView: View {
                                 emptyState("No pending friend requests.")
                             } else {
                                 ForEach(viewModel.pendingFriends) { friend in
-                                    FriendRow(
-                                        friend: friend,
-                                        onAccept: {
-                                            Task { await viewModel.acceptPendingFriend(friend) }
-                                        },
-                                        onStartCall: nil
-                                    )
+                                    if friend.isIncomingRequest {
+                                        FriendRow(
+                                            friend: friend,
+                                            onAccept: {
+                                                Task { await viewModel.acceptPendingFriend(friend) }
+                                            },
+                                            onDecline: {
+                                                Task { await viewModel.declinePendingFriend(friend) }
+                                            },
+                                            onEdit: { editingFriend = friend },
+                                            onDelete: { deletingFriend = friend },
+                                            onStartCall: nil
+                                        )
+                                    } else {
+                                        FriendRow(
+                                            friend: friend,
+                                            onAccept: nil,
+                                            onDecline: nil,
+                                            onEdit: { editingFriend = friend },
+                                            onDelete: { deletingFriend = friend },
+                                            onStartCall: nil
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -72,8 +98,16 @@ struct FriendsListView: View {
             .oneWayMenuBar()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+                    Button("Back") { dismiss() }
                         .foregroundStyle(.white.opacity(0.82))
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        isShowingAddFriend = true
+                    } label: {
+                        OneWayResolvedIcon(systemName: "person.badge.plus")
+                    }
+                    .foregroundStyle(.white)
                 }
             }
             .overlay {
@@ -84,11 +118,18 @@ struct FriendsListView: View {
             }
             .task {
                 await viewModel.loadFriends()
+                viewModel.startAutoRefresh()
+            }
+            .onDisappear {
+                viewModel.stopAutoRefresh()
             }
             .refreshable {
                 await viewModel.loadFriends()
             }
             .alert("Friends", isPresented: errorBinding) {
+                Button("Retry") {
+                    Task { await viewModel.loadFriends() }
+                }
                 Button("OK") { viewModel.errorMessage = nil }
             } message: {
                 Text(viewModel.errorMessage ?? "")
@@ -102,6 +143,32 @@ struct FriendsListView: View {
                 ) {
                     activeCall = nil
                 }
+            }
+            .sheet(isPresented: $isShowingAddFriend, onDismiss: {
+                Task { await viewModel.loadFriends() }
+            }) {
+                AddFriendView(friendService: environment.friendService)
+            }
+            .sheet(item: $editingFriend) { friend in
+                EditFriendSheet(friend: friend) { displayName in
+                    Task { await viewModel.renameFriend(friend, displayName: displayName) }
+                }
+            }
+            .alert(
+                "Remove Contact?",
+                isPresented: Binding(
+                    get: { deletingFriend != nil },
+                    set: { if !$0 { deletingFriend = nil } }
+                )
+            ) {
+                Button("Cancel", role: .cancel) { deletingFriend = nil }
+                Button("Remove", role: .destructive) {
+                    guard let friend = deletingFriend else { return }
+                    deletingFriend = nil
+                    Task { await viewModel.deleteFriend(friend) }
+                }
+            } message: {
+                Text("This removes the OneWay contact from your connected friends list.")
             }
             .preferredColorScheme(.dark)
         }
@@ -121,7 +188,7 @@ struct FriendsListView: View {
 
     private var searchField: some View {
         HStack(spacing: 12) {
-            Image(systemName: "magnifyingglass")
+            OneWayResolvedIcon(systemName: "magnifyingglass")
                 .foregroundStyle(.white.opacity(0.45))
 
             TextField("Search people", text: $viewModel.searchQuery)
@@ -182,30 +249,6 @@ struct FriendsListView: View {
     }
 
     private func startCall(with friend: FriendConnection, type: CallType) async {
-        if type == .video {
-            let callUUID = UUID()
-            let roomName = "group-\(friend.id.uuidString.lowercased())-\(environment.currentUserID)"
-
-            CallKitManager.shared.startOutgoingCall(
-                uuid: callUUID,
-                handle: friend.displayName
-            )
-
-            do {
-                try await LiveKitManager.shared.startCall(
-                    roomName: roomName,
-                    userId: environment.currentUserID,
-                    calleeUserId: friend.id.uuidString,
-                    callerName: environment.currentUserID,
-                    callUUID: callUUID
-                )
-            } catch {
-                viewModel.errorMessage = error.localizedDescription
-                CallKitManager.shared.endCall(uuid: callUUID)
-            }
-            return
-        }
-
         do {
             let session = try await environment.callService.startCall(chatID: friend.id, type: type)
             FriendsHaptics.notify(.success)
@@ -215,7 +258,7 @@ struct FriendsListView: View {
                 displayName: friend.displayName
             )
         } catch {
-            viewModel.errorMessage = "Unable to start \(type == .voice ? "voice" : "video") call."
+            viewModel.errorMessage = error.localizedDescription
         }
     }
 }
@@ -223,6 +266,9 @@ struct FriendsListView: View {
 private struct FriendRow: View {
     let friend: FriendConnection
     let onAccept: (() -> Void)?
+    let onDecline: (() -> Void)?
+    let onEdit: (() -> Void)?
+    let onDelete: (() -> Void)?
     let onStartCall: ((CallType) -> Void)?
 
     var body: some View {
@@ -255,11 +301,11 @@ private struct FriendRow: View {
                         .fill(friend.status == .connected ? Color(red: 0.19, green: 0.82, blue: 0.35) : .orange)
                         .frame(width: 7, height: 7)
 
-                    Text(friend.status == .connected ? "Online" : "Pending")
+                    Text(statusText)
                         .font(.caption)
                         .foregroundStyle(friend.status == .connected ? Color(red: 0.19, green: 0.82, blue: 0.35) : .orange)
 
-                    Text(friend.handle)
+                    Text([friend.handle, friend.chirpID].compactMap { $0 }.joined(separator: "  "))
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.5))
                         .lineLimit(1)
@@ -276,17 +322,44 @@ private struct FriendRow: View {
                 actionButton(icon: "video.fill") {
                     onStartCall?(.video)
                 }
-            } else {
-                Button("Accept") {
-                    onAccept?()
+
+                contactMenu
+            } else if friend.isIncomingRequest {
+                HStack(spacing: 8) {
+                    Button("Decline") {
+                        onDecline?()
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.82))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(Color.white.opacity(0.1))
+                    .clipShape(Capsule())
+                    .buttonStyle(FriendActionButtonStyle())
+
+                    Button("Accept") {
+                        onAccept?()
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Color(red: 0.19, green: 0.82, blue: 0.35))
+                    .clipShape(Capsule())
+                    .buttonStyle(FriendActionButtonStyle())
                 }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(Color(red: 0.19, green: 0.82, blue: 0.35))
-                .clipShape(Capsule())
-                .buttonStyle(FriendActionButtonStyle())
+
+                contactMenu
+            } else {
+                Text("Sent")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.orange.opacity(0.14))
+                    .clipShape(Capsule())
+
+                contactMenu
             }
         }
         .padding(.horizontal, 16)
@@ -304,9 +377,38 @@ private struct FriendRow: View {
         return String(parts.prefix(2).compactMap(\.first)).uppercased()
     }
 
+    private var statusText: String {
+        if friend.status == .connected { return "Online" }
+        return friend.isIncomingRequest ? "Incoming" : "Pending"
+    }
+
+    private var contactMenu: some View {
+        Menu {
+            Button {
+                onEdit?()
+            } label: {
+                OneWayResolvedLabel("Edit Name", systemImage: "pencil")
+            }
+
+            Button(role: .destructive) {
+                onDelete?()
+            } label: {
+                OneWayResolvedLabel("Remove", systemImage: "trash")
+            }
+        } label: {
+            OneWayResolvedIcon(systemName: "ellipsis")
+                .font(.headline)
+                .foregroundStyle(.white.opacity(0.72))
+                .frame(width: 36, height: 36)
+                .background(Color.white.opacity(0.08))
+                .clipShape(Circle())
+        }
+        .buttonStyle(.plain)
+    }
+
     private func actionButton(icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: icon)
+            OneWayResolvedIcon(systemName: icon)
                 .font(.headline)
                 .foregroundStyle(.white)
                 .frame(width: 40, height: 40)
@@ -314,6 +416,48 @@ private struct FriendRow: View {
                 .clipShape(Circle())
         }
         .buttonStyle(FriendActionButtonStyle())
+    }
+}
+
+private struct EditFriendSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let friend: FriendConnection
+    let onSave: (String) -> Void
+    @State private var displayName: String
+
+    init(friend: FriendConnection, onSave: @escaping (String) -> Void) {
+        self.friend = friend
+        self.onSave = onSave
+        _displayName = State(initialValue: friend.displayName)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Contact Name") {
+                    TextField("Display name", text: $displayName)
+                        .textInputAutocapitalization(.words)
+                }
+
+                Section {
+                    Text(friend.handle)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("Edit Contact")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        onSave(displayName)
+                        dismiss()
+                    }
+                    .disabled(displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
     }
 }
 

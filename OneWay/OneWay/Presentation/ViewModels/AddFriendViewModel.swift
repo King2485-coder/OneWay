@@ -5,6 +5,8 @@ import Combine
 final class AddFriendViewModel: ObservableObject {
     @Published var handleInput = ""
     @Published var inviteInput = ""
+    @Published private(set) var searchResults: [OneWayUserSearchResult] = []
+    @Published private(set) var isSearching = false
     @Published private(set) var generatedInviteLink: URL?
     @Published private(set) var recentResult: String?
     @Published var errorMessage: String?
@@ -18,11 +20,62 @@ final class AddFriendViewModel: ObservableObject {
     func requestByHandle() async {
         do {
             let friend = try await friendService.sendFriendRequest(handle: handleInput)
-            recentResult = "Request sent to \(friend.handle)"
+            recentResult = friend.status == .connected
+                ? "Connected with \(friend.displayName)"
+                : "Request sent to \(friend.handle)"
             handleInput = ""
             errorMessage = nil
         } catch FriendServiceError.invalidHandle {
-            errorMessage = "Enter a valid handle like @alex."
+            errorMessage = "Enter a valid handle or Chirp ID."
+        } catch {
+            errorMessage = "Could not send request."
+        }
+    }
+
+    func search() async {
+        let query = handleInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            searchResults = []
+            return
+        }
+
+        isSearching = true
+        defer { isSearching = false }
+
+        do {
+            searchResults = try await friendService.searchUsers(query: query)
+            errorMessage = nil
+        } catch {
+            errorMessage = "Could not search OneWay users."
+        }
+    }
+
+    func request(_ result: OneWayUserSearchResult) async {
+        do {
+            if result.friendshipState == "pendingIncoming" {
+                let pending = try await friendService.fetchFriends()
+                    .first {
+                        $0.userID.caseInsensitiveCompare(result.id) == .orderedSame &&
+                        $0.status == .pending &&
+                        $0.isIncomingRequest
+                    }
+                guard let pending else {
+                    throw FriendServiceError.notFound
+                }
+
+                let friend = try await friendService.acceptFriendRequest(id: pending.id)
+                recentResult = "Connected with \(friend.displayName)"
+                errorMessage = nil
+                await search()
+                return
+            }
+
+            let friend = try await friendService.sendFriendRequest(to: result.id)
+            recentResult = friend.status == .connected
+                ? "Connected with \(friend.displayName)"
+                : "Request sent to \(friend.handle)"
+            errorMessage = nil
+            await search()
         } catch {
             errorMessage = "Could not send request."
         }

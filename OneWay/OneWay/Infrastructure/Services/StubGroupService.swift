@@ -26,11 +26,7 @@ actor StubGroupService: GroupService {
     }
 
     private func seed(chatID: UUID) -> [GroupMember] {
-        let list = [
-            GroupMember(id: UUID(), name: "You", handle: "@you", role: .owner),
-            GroupMember(id: UUID(), name: "Alex", handle: "@alex", role: .admin),
-            GroupMember(id: UUID(), name: "Priya", handle: "@priya", role: .member)
-        ]
+        let list: [GroupMember] = []
         membersByChat[chatID] = list
         return list
     }

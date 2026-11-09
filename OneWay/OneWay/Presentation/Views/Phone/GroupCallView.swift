@@ -38,19 +38,26 @@ struct GroupCallView: View {
         max(0, manager.remoteParticipants.count - visibleParticipants.count)
     }
 
+    private var isExternalPSTNRoom: Bool {
+        roomName.hasPrefix("pstn-")
+    }
+
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            OneWayCallTheme.background.ignoresSafeArea()
 
             if manager.remoteParticipants.isEmpty {
                 VStack(spacing: 16) {
+                    OneWayCallLogo(size: 72)
                     Text("Waiting for others to join…")
-                        .foregroundColor(.white)
-                        .font(.title3)
+                        .foregroundColor(OneWayCallTheme.text)
+                        .font(.title3.weight(.black))
 
                     ProgressView()
-                        .tint(.white)
+                        .tint(OneWayCallTheme.purple)
                 }
+                .padding(28)
+                .oneWayCallGlass(cornerRadius: 30)
             } else {
                 ScrollView {
                     LazyVGrid(
@@ -87,24 +94,26 @@ struct GroupCallView: View {
                 if manager.isReconnecting {
                     HStack(spacing: 10) {
                         ProgressView()
-                            .tint(.white)
+                            .tint(OneWayCallTheme.purple)
 
                         Text("Reconnecting…")
-                            .foregroundColor(.white)
+                            .foregroundColor(OneWayCallTheme.text)
                             .font(.headline)
                     }
                     .padding(.horizontal, 18)
                     .padding(.vertical, 12)
-                    .background(.ultraThinMaterial)
+                    .background(OneWayCallTheme.surface)
+                    .overlay(Capsule().stroke(OneWayCallTheme.border, lineWidth: 1))
                     .clipShape(Capsule())
                     .padding(.top, 18)
                 } else if overflowParticipantCount > 0 {
                     Text("+\(overflowParticipantCount) more listening")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(OneWayCallTheme.text)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
-                        .background(.ultraThinMaterial)
+                        .background(OneWayCallTheme.surface)
+                        .overlay(Capsule().stroke(OneWayCallTheme.border, lineWidth: 1))
                         .clipShape(Capsule())
                         .padding(.top, 18)
                 }
@@ -115,29 +124,33 @@ struct GroupCallView: View {
                     Button {
                         Task { await manager.toggleMic() }
                     } label: {
-                        Image(systemName: manager.isMicrophoneEnabled ? "mic.fill" : "mic.slash.fill")
+                        OneWayResolvedIcon(systemName: manager.isMicrophoneEnabled ? "mic.fill" : "mic.slash.fill")
                             .callControlStyle()
                     }
 
-                    Button {
-                        Task { await manager.toggleCamera() }
-                    } label: {
-                        Image(systemName: manager.isCameraEnabled ? "video.fill" : "video.slash.fill")
-                            .callControlStyle()
-                    }
-
-                    Button {
-                        Task {
-                            if let egressId = recordingEgressId {
-                                try? await RecordingService.shared.stopRecording(egressId: egressId)
-                                recordingEgressId = nil
-                            } else if let activeRoom = manager.currentRoomName {
-                                recordingEgressId = try? await RecordingService.shared.startRecording(roomName: activeRoom)
-                            }
+                    if !isExternalPSTNRoom {
+                        Button {
+                            Task { await manager.toggleCamera() }
+                        } label: {
+                            OneWayResolvedIcon(systemName: manager.isCameraEnabled ? "video.fill" : "video.slash.fill")
+                                .callControlStyle()
                         }
-                    } label: {
-                        Image(systemName: recordingEgressId == nil ? "record.circle" : "stop.circle.fill")
-                            .callControlStyle(color: recordingEgressId == nil ? .white : .red)
+                    }
+
+                    if !isExternalPSTNRoom {
+                        Button {
+                            Task {
+                                if let egressId = recordingEgressId {
+                                    try? await RecordingService.shared.stopRecording(egressId: egressId)
+                                    recordingEgressId = nil
+                                } else if let activeRoom = manager.currentRoomName {
+                                    recordingEgressId = try? await RecordingService.shared.startRecording(roomName: activeRoom)
+                                }
+                            }
+                        } label: {
+                            OneWayResolvedIcon(systemName: recordingEgressId == nil ? "record.circle" : "stop.circle.fill")
+                                .callControlStyle(color: recordingEgressId == nil ? .white : .red)
+                        }
                     }
 
                     Button {
@@ -154,18 +167,22 @@ struct GroupCallView: View {
                             }
                         }
                     } label: {
-                        Image(systemName: "phone.down.fill")
+                        OneWayResolvedIcon(systemName: "phone.down.fill")
                             .callControlStyle(color: .red)
                     }
                 }
                 .padding()
-                .background(.ultraThinMaterial)
+                .background(OneWayCallTheme.surface)
+                .overlay(Capsule().stroke(OneWayCallTheme.border, lineWidth: 1))
                 .clipShape(Capsule())
                 .padding(.bottom, 28)
             }
         }
         .task {
-            guard manager.currentRoomName != roomName || !manager.isConnected else { return }
+            if isExternalPSTNRoom {
+                return
+            }
+            guard manager.currentRoomName != roomName || manager.room == nil else { return }
             do {
                 try await manager.startCall(
                     roomName: roomName,
@@ -187,31 +204,32 @@ struct RemoteParticipantTile: View {
 
     var body: some View {
         ZStack {
-            Color.gray.opacity(0.2)
+            OneWayCallTheme.lavenderSurface
 
             if let track = participant.firstCameraVideoTrack ?? participant.firstScreenShareVideoTrack {
                 VideoTrackView(track: track)
             } else {
                 VStack(spacing: 10) {
-                    Image(systemName: "person.crop.circle.fill")
+                    OneWayResolvedIcon(systemName: "person.crop.circle.fill")
                         .font(.system(size: 54))
-                        .foregroundColor(.white.opacity(0.7))
+                        .foregroundColor(OneWayCallTheme.purple)
 
                     Text("Participant")
-                        .foregroundColor(.white)
+                        .foregroundColor(OneWayCallTheme.text)
                 }
             }
         }
     }
 }
 
-extension Image {
+extension OneWayResolvedIcon {
     func callControlStyle(color: Color = .white) -> some View {
         self
             .font(.system(size: 22, weight: .bold))
-            .foregroundColor(color)
+            .foregroundColor(color == .white ? OneWayCallTheme.purple : color)
             .frame(width: 58, height: 58)
-            .background(Color.white.opacity(0.14))
+            .background(OneWayCallTheme.lavenderSurface)
+            .overlay(Circle().stroke(OneWayCallTheme.purple.opacity(0.14), lineWidth: 1))
             .clipShape(Circle())
     }
 }
@@ -239,7 +257,7 @@ struct GroupCallView: View {
     }
 
     var body: some View {
-        Color.black.ignoresSafeArea()
+        OneWayCallTheme.background.ignoresSafeArea()
     }
 }
 #endif

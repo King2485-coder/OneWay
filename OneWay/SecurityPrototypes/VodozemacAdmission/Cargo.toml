@@ -1,0 +1,23 @@
+[package]
+name = "oneway-vodozemac-admission"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.89"
+publish = false
+[workspace]
+[lib]
+name = "oneway_vodozemac"
+crate-type = ["staticlib", "cdylib", "rlib"]
+[features]
+default = []
+full-tag = ["vodozemac/experimental-session-config"]
+bindgen = ["uniffi/cli"]
+[dependencies]
+vodozemac = { version = "=0.11.1", git = "https://github.com/matrix-org/vodozemac", rev = "3e11ae87d157da6bcac3cbf7825d37c8f5ed60af", default-features = false }
+uniffi = "=0.32.1"
+thiserror = "=2.0.21"
+serde_json = "=1.0.154"
+[[bin]]
+name = "bindgen"
+path = "src/bin/bindgen.rs"
+required-features = ["bindgen"]

@@ -20,7 +20,7 @@ struct ReplyPreviewBar: View {
             }
             Spacer()
             Button(action: onCancel) {
-                Image(systemName: "xmark.circle.fill")
+                OneWayResolvedIcon(systemName: "xmark.circle.fill")
                     .foregroundStyle(.secondary)
             }
         }

@@ -3,6 +3,43 @@
 -- Append to supabase_schema.sql and re-run, or run separately
 -- ═══════════════════════════════════════════════════════════════════
 
+-- Minimal reproducible Supabase baseline. The hosted schema already provides
+-- these objects, but local rebuilds must not depend on untracked dashboard SQL.
+create extension if not exists "uuid-ossp";
+
+create table if not exists public.profiles (
+  id          uuid primary key references auth.users(id) on delete cascade,
+  username    text unique,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+alter table public.profiles enable row level security;
+
+drop policy if exists "Users can view their own profile" on public.profiles;
+create policy "Users can view their own profile"
+  on public.profiles for select
+  to authenticated
+  using ((select auth.uid()) = id);
+
+drop policy if exists "Users can update their own profile" on public.profiles;
+create policy "Users can update their own profile"
+  on public.profiles for update
+  to authenticated
+  using ((select auth.uid()) = id)
+  with check ((select auth.uid()) = id);
+
+create or replace function public.handle_updated_at()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, public
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
 -- ─── DOMAINS ───────────────────────────────────────────────────────
 create table if not exists public.ow_domains (
   id                  uuid primary key default uuid_generate_v4(),

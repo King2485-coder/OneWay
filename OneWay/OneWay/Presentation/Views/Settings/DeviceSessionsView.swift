@@ -29,13 +29,10 @@ struct DeviceSessionsView: View {
                 }
             }
 
-            Section("Actions") {
-                Button("Link Dummy Device") {
-                    Task { await viewModel.linkDummyDevice() }
-                }
-                Button("Revoke Other Sessions", role: .destructive) {
-                    Task { await viewModel.revokeOtherSessions() }
-                }
+            Section("Status") {
+                Text("Device management is unavailable until authenticated session revocation is supported by the OneWay server.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             if let info = viewModel.infoMessage {

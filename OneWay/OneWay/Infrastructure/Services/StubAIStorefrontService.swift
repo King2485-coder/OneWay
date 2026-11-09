@@ -8,11 +8,14 @@ final class StubAIStorefrontService: AIStorefrontService {
             id: UUID(),
             ownerID: UUID(),
             name: inferred.name,
+            handle: slugify(request.businessName),
             category: inferred.category,
             tagline: inferred.tagline,
             description: inferred.description,
             logoURL: nil,
             coverImageURL: nil,
+            announcement: "Opening soon on OneWay.",
+            sellerStory: "Share your seller story here.",
             contactEmail: nil,
             phone: nil,
             website: nil,
@@ -34,6 +37,13 @@ final class StubAIStorefrontService: AIStorefrontService {
             theme: business.theme,
             layout: business.layout,
             slug: slugify(request.businessName),
+            shopURL: APIConfig.storefrontPublicURLString(for: slugify(request.businessName)),
+            paymentStatus: "pending",
+            paymentsReady: false,
+            policiesReady: false,
+            setupComplete: false,
+            publishChecklist: ["Connect payments", "Add at least one product", "Add shop policies"],
+            policy: .default,
             isPublished: false,
             publishedState: .draft
         )
@@ -43,6 +53,10 @@ final class StubAIStorefrontService: AIStorefrontService {
 
     func regenerateSection(storefront: Storefront, section: StorefrontSectionType) async throws -> StorefrontSection {
         StorefrontSection(type: section, title: "Regenerated \(section.rawValue.capitalized)", body: "Updated by AI", items: sampleProducts(), mediaURLs: [])
+    }
+
+    func storefrontHelp(type: StorefrontAIHelpType, context: StorefrontAIHelpContext) async throws -> String {
+        StorefrontAIFallback.text(for: type, context: context)
     }
 
     private func sampleProducts() -> [ProductOrService] {

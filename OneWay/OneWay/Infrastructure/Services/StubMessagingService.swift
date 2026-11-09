@@ -7,6 +7,7 @@ final class StubMessagingService: MessagingService {
     private let storageService: StorageService
     private var chats: [ChatSummary]
     private var messagesByChatID: [UUID: [ChatMessage]]
+    private var privacyByChatID: [UUID: ConversationPrivacySettings] = [:]
 
     init(localPersistence: LocalPersistence, cryptoService: CryptoService, storageService: StorageService) {
         self.localPersistence = localPersistence
@@ -34,13 +35,36 @@ final class StubMessagingService: MessagingService {
         return messages.sorted { $0.sentAt < $1.sentAt }
     }
 
-    func sendMessage(_ text: String, chatID: UUID) async throws {
+    func fetchPrivacySettings(chatID: UUID) async throws -> ConversationPrivacySettings {
+        privacyByChatID[chatID] ?? chats.first(where: { $0.id == chatID })?.privacySettings ?? .standard
+    }
+
+    func updatePrivacySettings(_ settings: ConversationPrivacySettings, chatID: UUID) async throws -> ConversationPrivacySettings {
+        privacyByChatID[chatID] = settings
+        return settings
+    }
+
+    func observeMessages(chatID: UUID) -> AsyncThrowingStream<ChatMessage, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.finish()
+        }
+    }
+
+    func observeChatUpdates() -> AsyncThrowingStream<ChatRealtimeEvent, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.finish()
+        }
+    }
+
+    func preconnectRealtime() {}
+
+    func sendMessage(_ text: String, chatID: UUID) async throws -> ChatMessage? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return nil }
 
         if trimmed.lowercased().contains("fail") {
             try await addFailedOutgoing(body: trimmed, chatID: chatID)
-            return
+            return messagesByChatID[chatID]?.last
         }
 
         let outgoing = makeOutgoingMessage(body: trimmed, chatID: chatID, attachment: nil, status: .read)
@@ -50,9 +74,14 @@ final class StubMessagingService: MessagingService {
         let incoming = makeIncomingReply(for: trimmed, chatID: chatID)
         append(message: incoming, to: chatID)
         updateChatPreview(chatID: chatID, preview: incoming.body, timestamp: incoming.sentAt, bumpUnread: true)
+        return outgoing
     }
 
-    func sendMediaMessage(_ attachment: MessageAttachment, caption: String, chatID: UUID) async throws {
+    func sendMessage(_ text: String, chatID: UUID, disappearing: MessageDisappearingOverride) async throws -> ChatMessage? {
+        try await sendMessage(text, chatID: chatID)
+    }
+
+    func sendMediaMessage(_ attachment: MessageAttachment, caption: String, chatID: UUID, disappearing: MessageDisappearingOverride) async throws -> ChatMessage? {
         let outgoing = makeOutgoingMessage(body: caption, chatID: chatID, attachment: attachment, status: .delivered)
         append(message: outgoing, to: chatID)
         try await encryptAndPersist(outgoing, chatID: chatID)
@@ -60,6 +89,7 @@ final class StubMessagingService: MessagingService {
         let incoming = makeIncomingReply(for: caption.isEmpty ? "media" : caption, chatID: chatID)
         append(message: incoming, to: chatID)
         updateChatPreview(chatID: chatID, preview: "[Media] \(incoming.body)", timestamp: incoming.sentAt, bumpUnread: true)
+        return outgoing
     }
 
     func retryMessage(messageID: UUID, chatID: UUID) async throws {
@@ -188,7 +218,7 @@ final class StubMessagingService: MessagingService {
         updateChatPreview(chatID: toChatID, preview: forwarded.body, timestamp: forwarded.sentAt, bumpUnread: true)
     }
 
-    func reply(to messageID: UUID, text: String, chatID: UUID) async throws {
+    func reply(to messageID: UUID, text: String, chatID: UUID) async throws -> ChatMessage? {
         let reply = ChatMessage(
             id: UUID(),
             chatID: chatID,
@@ -209,6 +239,7 @@ final class StubMessagingService: MessagingService {
         )
         append(message: reply, to: chatID)
         updateChatPreview(chatID: chatID, preview: reply.body, timestamp: reply.sentAt, bumpUnread: false)
+        return reply
     }
 
     func wipeAllData() async {
@@ -324,10 +355,10 @@ enum MockChatSeed {
         let chats = [
             ChatSummary(
                 id: alexID,
-                participantName: "Alex",
-                participantHandle: "@alex",
-                lastMessagePreview: "Can we sync on keys later?",
-                lastMessageAt: now.addingTimeInterval(-60 * 9),
+                participantName: "Ava Chen",
+                participantHandle: "@ava",
+                lastMessagePreview: "Let’s meet up for coffee later!",
+                lastMessageAt: now.addingTimeInterval(-60),
                 unreadCount: 2,
                 presence: .online,
                 isPinned: true,
@@ -337,10 +368,10 @@ enum MockChatSeed {
             ),
             ChatSummary(
                 id: priyaID,
-                participantName: "Priya",
-                participantHandle: "@priya",
-                lastMessagePreview: "Looks good to me.",
-                lastMessageAt: now.addingTimeInterval(-60 * 42),
+                participantName: "Jordan Ellis",
+                participantHandle: "@jordan",
+                lastMessagePreview: "That sounds good",
+                lastMessageAt: now.addingTimeInterval(-60 * 120),
                 unreadCount: 0,
                 presence: .offline,
                 isPinned: false,

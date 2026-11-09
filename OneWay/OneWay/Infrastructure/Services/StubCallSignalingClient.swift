@@ -12,6 +12,9 @@ struct StubCallSignalingClient: CallSignalingClient {
     /// Override this if you spin up a self-hosted LiveKit instance.
     static let defaultRoomURL = URL(string: "wss://oneway-dev.livekit.cloud")!
 
+    func start() async {}
+    func stop() async {}
+
     func invite(chatID: UUID, callID: UUID, type: CallType) async throws -> CallCredentials {
         CallCredentials(roomURL: Self.defaultRoomURL, token: Self.devToken(for: callID), iceServers: [])
     }

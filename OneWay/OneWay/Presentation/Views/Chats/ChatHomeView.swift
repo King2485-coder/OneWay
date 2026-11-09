@@ -95,9 +95,9 @@ private struct SearchBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
+            OneWayResolvedIcon(systemName: "magnifyingglass")
                 .foregroundStyle(Theme.textMuted)
-            TextField("Search encrypted chats", text: $text)
+            TextField("Search chats", text: $text)
                 .foregroundStyle(Theme.textPrimary)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -123,7 +123,7 @@ private struct ChatRow: View {
             Circle()
                 .fill(Theme.glassSurface)
                 .overlay(
-                    Image(systemName: "person.crop.circle.fill")
+                    OneWayResolvedIcon(systemName: "person.crop.circle.fill")
                         .font(.system(size: 24))
                         .foregroundStyle(Theme.textSecondary)
                 )
@@ -156,7 +156,7 @@ private struct ChatRow: View {
                 }
             }
 
-            Image(systemName: "chevron.right")
+            OneWayResolvedIcon(systemName: "chevron.right")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Theme.textMuted)
         }

@@ -1,0 +1,7 @@
+module oneway_vodozemacFFI {
+    header "oneway_vodozemacFFI.h"
+    export *
+    use "Darwin"
+    use "_Builtin_stdbool"
+    use "_Builtin_stdint"
+}

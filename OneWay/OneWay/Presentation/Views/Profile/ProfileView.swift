@@ -27,6 +27,7 @@ struct ProfileView: View {
     @StateObject private var viewModel: SettingsViewModel
     @StateObject private var storyViewModel: ProfileStoryViewModel
     @ObservedObject private var accountDeletionScheduler: AccountDeletionScheduler
+    private let localPersistence: LocalPersistence
 
     @State private var selectedPreset: DeletionPreset = .oneDay
     @State private var selectedProfilePhotoItem: PhotosPickerItem?
@@ -51,6 +52,7 @@ struct ProfileView: View {
         )
         _storyViewModel = StateObject(wrappedValue: ProfileStoryViewModel(storyService: storyService))
         _accountDeletionScheduler = ObservedObject(wrappedValue: accountDeletionScheduler)
+        self.localPersistence = localPersistence
     }
 
     var body: some View {
@@ -67,13 +69,13 @@ struct ProfileView: View {
                     }
 
                     PhotosPicker(selection: $selectedProfilePhotoItem, matching: .images) {
-                        Label("Upload Profile Photo", systemImage: "photo")
+                        OneWayResolvedLabel("Upload Profile Photo", systemImage: "photo")
                     }
 
                     Button {
                         isShowingProfileCamera = true
                     } label: {
-                        Label("Take Profile Photo", systemImage: "camera.fill")
+                        OneWayResolvedLabel("Take Profile Photo", systemImage: "camera.fill")
                     }
                 }
 
@@ -88,13 +90,13 @@ struct ProfileView: View {
                     }
 
                     PhotosPicker(selection: $selectedStoryMediaItem, matching: .any(of: [.images, .videos])) {
-                        Label("Add Story Photo or Video", systemImage: "photo.on.rectangle.angled")
+                        OneWayResolvedLabel("Add Story Photo or Video", systemImage: "photo.on.rectangle.angled")
                     }
 
                     Button {
                         isShowingStoryCamera = true
                     } label: {
-                        Label("Take Story Photo", systemImage: "camera.fill")
+                        OneWayResolvedLabel("Take Story Photo", systemImage: "camera.fill")
                     }
 
                     if let selectedStoryMedia {
@@ -132,37 +134,6 @@ struct ProfileView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Section("Timed Account Deletion") {
-                    Picker("Delete After", selection: $selectedPreset) {
-                        ForEach(DeletionPreset.allCases) { preset in
-                            Text(preset.rawValue).tag(preset)
-                        }
-                    }
-
-                    Button("Schedule Deletion Timer", role: .destructive) {
-                        accountDeletionScheduler.schedule(after: selectedPreset.interval)
-                    }
-
-                    if let date = accountDeletionScheduler.scheduledDeletionDate {
-                        LabeledContent("Scheduled For") {
-                            Text(date.formatted(date: .abbreviated, time: .shortened))
-                        }
-
-                        TimelineView(.periodic(from: .now, by: 1)) { context in
-                            Text("Time Remaining: \(remainingText(until: date, now: context.date))")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Button("Cancel Timer", role: .cancel) {
-                            accountDeletionScheduler.cancel()
-                        }
-                    }
-
-                    Text("Deletion is best-effort in-app. External copies such as screenshots or backups may still exist.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
             }
             .navigationTitle("Profile")
             .oneWayMenuBar()

@@ -20,33 +20,36 @@ struct CloneAuthFlowView: View {
     }
 
     var body: some View {
-        VStack(spacing: 20) {
-            switch step {
-            case .onboarding:
-                OnboardingStepView(
-                    onGetStarted: { step = .signup },
-                    onExistingAccount: { step = .login }
-                )
-            case .login:
-                LoginStepView(isSubmitting: isSubmitting) {
-                    await authenticateAndFinish()
-                } onCreateAccount: {
-                    step = .signup
-                }
-            case .signup:
-                SignupStepView(isSubmitting: isSubmitting) {
-                    await authenticateAndFinish()
-                } onExistingAccount: {
-                    step = .login
-                }
-            case .done:
-                AuthSuccessView(user: createdUser) {
-                    step = .login
-                    createdUser = nil
+        ScrollView {
+            VStack(spacing: 20) {
+                switch step {
+                case .onboarding:
+                    OnboardingStepView(
+                        onGetStarted: { step = .signup },
+                        onExistingAccount: { step = .login }
+                    )
+                case .login:
+                    LoginStepView(isSubmitting: isSubmitting) {
+                        await authenticateAndFinish()
+                    } onCreateAccount: {
+                        step = .signup
+                    }
+                case .signup:
+                    SignupStepView(isSubmitting: isSubmitting) {
+                        await authenticateAndFinish()
+                    } onExistingAccount: {
+                        step = .login
+                    }
+                case .done:
+                    AuthSuccessView(user: createdUser) {
+                        step = .login
+                        createdUser = nil
+                    }
                 }
             }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
-        .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background { SideMenuBackground() }
         .navigationTitle("Auth Flow")
@@ -237,7 +240,7 @@ private struct AuthSuccessView: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            Image(systemName: "checkmark.seal.fill")
+            OneWayResolvedIcon(systemName: "checkmark.seal.fill")
                 .font(.system(size: 56))
                 .foregroundStyle(Theme.primaryBlue)
 
@@ -248,11 +251,6 @@ private struct AuthSuccessView: View {
             Text(user?.displayName ?? "Authenticated user")
                 .font(.title3)
                 .foregroundStyle(Theme.textSecondary)
-
-            Button("Sign out (test)") {
-                onSignOut()
-            }
-            .buttonStyle(PrimaryPillButtonStyle())
         }
         .frame(maxWidth: .infinity)
         .padding(24)

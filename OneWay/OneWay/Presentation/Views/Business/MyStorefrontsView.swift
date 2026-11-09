@@ -17,7 +17,7 @@ struct MyStorefrontsView: View {
                 Button {
                     showCreateSheet = true
                 } label: {
-                    Label("Create storefront", systemImage: "plus.circle.fill")
+                    OneWayResolvedLabel("Add storefront", systemImage: "plus.circle.fill")
                 }
             }
 
@@ -37,8 +37,14 @@ struct MyStorefrontsView: View {
                             Button("Open") {
                                 onOpen(store)
                             }
-                            Button(store.isPublished ? "Unpublish" : "Publish") {
-                                Task { await viewModel.togglePublish(store: store) }
+                            if store.isPublished {
+                                Button("View live") {
+                                    onOpen(store)
+                                }
+                            } else {
+                                Button("Continue setup") {
+                                    onOpen(store)
+                                }
                             }
                             Button("Delete", role: .destructive) {
                                 storefrontToDelete = store
@@ -59,7 +65,7 @@ struct MyStorefrontsView: View {
                         TextField("Tagline", text: $newTagline)
                     }
                 }
-                .navigationTitle("Create storefront")
+                .navigationTitle("Add storefront")
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") { showCreateSheet = false }
@@ -99,7 +105,7 @@ struct MyStorefrontsView: View {
     }
 
     private func statusPill(isPublished: Bool) -> some View {
-        Text(isPublished ? "Published" : "Draft")
+        Text(isPublished ? "Live" : "Draft")
             .font(.caption)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)

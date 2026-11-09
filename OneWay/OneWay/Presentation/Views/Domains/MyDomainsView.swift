@@ -56,7 +56,7 @@ struct MyDomainsView: View {
                 NavigationLink {
                     RegisterDomainView(domainService: domainService)
                 } label: {
-                    Image(systemName: "plus.circle.fill")
+                    OneWayResolvedIcon(systemName: "plus.circle.fill")
                         .foregroundStyle(Theme.accentGold)
                 }
             }
@@ -75,7 +75,7 @@ struct MyDomainsView: View {
 
     private var emptyState: some View {
         VStack(spacing: 12) {
-            Image(systemName: "paperplane.circle")
+            OneWayResolvedIcon(systemName: "paperplane.circle")
                 .font(.system(size: 44))
                 .foregroundStyle(Theme.textMuted)
             Text("No domains yet.")
@@ -110,7 +110,7 @@ struct MyDomainsView: View {
             }
             Spacer()
             statusBadge(for: domain.status)
-            Image(systemName: "chevron.right").foregroundStyle(Theme.textMuted)
+            OneWayResolvedIcon(systemName: "chevron.right").foregroundStyle(Theme.textMuted)
         }
         .padding(16)
         .background(Theme.glassSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))

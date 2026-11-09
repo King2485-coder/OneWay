@@ -2,28 +2,34 @@ import SwiftUI
 import Combine
 import PhotosUI
 import UIKit
+import UserNotifications
 
 struct SettingsView: View {
     enum Destination: Hashable {
         case profile
-        case avatar
+        case identityDetails
         case lists
         case broadcastMessages
         case starred
         case linkedDevices
         case account
+        case oneWayButtonAutomations
+        case walletShortcut
         case privacy
         case spamProtection
         case chats
         case notifications
         case storageAndData
+        case platformReadiness
         case helpAndFeedback
         case inviteFriend
         case importedPages
         case diagnostics
+        case developerQA
+        case myNumbers
+        case walkiePermissions
     }
 
-    @AppStorage("burn_button_enabled") private var burnButtonEnabled = false
     @StateObject private var viewModel: SettingsViewModel
     @State private var selectedProfilePhotoItem: PhotosPickerItem?
     @State private var isShowingPhotoPicker = false
@@ -33,6 +39,7 @@ struct SettingsView: View {
     @State private var didUpdateProfilePhoto = false
     @State private var isShowingProfileCamera = false
     @State private var apiHealthStatus: String = "Unknown"
+    @State private var navigationPath: [Destination] = []
 
     private let authService: AuthService
     private let keyService: KeyService
@@ -53,6 +60,8 @@ struct SettingsView: View {
     private let safetyService: SafetyService
     private let callService: CallService
     private let systemHealthManager: SystemHealthManager
+    private let onBack: () -> Void
+    private let onSignOut: () async -> Void
 
     init(
         authService: AuthService,
@@ -73,7 +82,9 @@ struct SettingsView: View {
         backupService: BackupService,
         safetyService: SafetyService,
         callService: CallService,
-        systemHealthManager: SystemHealthManager
+        systemHealthManager: SystemHealthManager,
+        onBack: @escaping () -> Void,
+        onSignOut: @escaping () async -> Void
     ) {
         self.authService = authService
         self.keyService = keyService
@@ -94,6 +105,8 @@ struct SettingsView: View {
         self.safetyService = safetyService
         self.callService = callService
         self.systemHealthManager = systemHealthManager
+        self.onBack = onBack
+        self.onSignOut = onSignOut
         _viewModel = StateObject(
             wrappedValue: SettingsViewModel(
                 authService: authService,
@@ -104,43 +117,30 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             ScrollView {
-                VStack(spacing: 18) {
+                VStack(alignment: .leading, spacing: 16) {
                     header
                     profileCard
 
-#if DEBUG
-                    debugAPIDiagnostics
-#endif
+                    adaptivePrimarySections
 
-                    settingsGroup([
-                        row(icon: "rectangle.stack.badge.person.crop", title: "Lists", destination: .lists),
-                        row(icon: "megaphone", title: "Broadcast messages", destination: .broadcastMessages),
-                        row(icon: "star", title: "Starred", destination: .starred),
-                        row(icon: "laptopcomputer", title: "Linked devices", destination: .linkedDevices)
-                    ])
+                    settingsSection(title: "SYSTEM / TOOLS", rows: systemToolRows)
 
-                    settingsGroup([
-                        row(icon: "key", title: "Account", destination: .account),
-                        row(icon: "lock", title: "Privacy", destination: .privacy),
-                        row(icon: "exclamationmark.shield", title: "Spam Protection", destination: .spamProtection),
-                        row(icon: "bubble.left", title: "Chats", destination: .chats),
-                        row(icon: "app.badge", title: "Notifications", destination: .notifications),
-                        row(icon: "arrow.up.arrow.down", title: "Storage and data", destination: .storageAndData),
-                        row(icon: "waveform.path.ecg", title: "Diagnostics", destination: .diagnostics)
-                    ])
-
-                    settingsGroup([
-                        row(icon: "questionmark.circle", title: "Help and feedback", destination: .helpAndFeedback),
-                        row(icon: "person.2", title: "Invite a friend", destination: .inviteFriend),
-                        row(icon: "square.stack.3d.up", title: "Imported clone pages", destination: .importedPages)
-                    ])
+                    settingsSection(
+                        title: "SUPPORT",
+                        rows: [
+                            row(icon: "questionmark.circle", title: "Help and feedback", subtitle: "Get help or share feedback", destination: .helpAndFeedback),
+                            row(icon: "person.2", title: "Invite a friend", subtitle: "Invite friends to join OneWay", destination: .inviteFriend),
+                            row(icon: "square.stack.3d.up", title: "Imported clone pages", subtitle: "View and manage imported pages", destination: .importedPages)
+                        ]
+                    )
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 120)
+                .padding(.top, 10)
+                .padding(.bottom, 36)
             }
-            .background { SideMenuBackground() }
+            .background { SettingsReferenceBackground() }
             .safeAreaPadding(.bottom, 16)
             .navigationDestination(for: Destination.self) { destination in
                 destinationView(for: destination)
@@ -189,29 +189,74 @@ struct SettingsView: View {
     }
 
     private var header: some View {
-        HStack {
-            Color.clear
-                .frame(width: 44, height: 44)
-
-            Spacer()
+        HStack(alignment: .center, spacing: 14) {
+            MarketplaceBackButton(action: onBack)
 
             Text("Settings")
-                .font(.system(size: 58, weight: .bold))
-                .foregroundStyle(Theme.textPrimary)
+                .font(.system(size: 42, weight: .black, design: .rounded))
+                .foregroundStyle(OneWayDesignSystem.Colors.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
 
-            Spacer()
-
-            Color.clear
-                .frame(width: 44, height: 44)
+            Spacer(minLength: 0)
         }
-        .padding(.top, 8)
+        .padding(.horizontal, 4)
+    }
+
+    @ViewBuilder
+    private var adaptivePrimarySections: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 14) {
+                profileCoreSection
+                    .frame(minWidth: 300)
+                privacyCommunicationSection
+                    .frame(minWidth: 300)
+            }
+
+            VStack(alignment: .leading, spacing: 16) {
+                profileCoreSection
+                privacyCommunicationSection
+            }
+        }
+    }
+
+    private var profileCoreSection: some View {
+        settingsSection(
+            title: "PROFILE / CORE",
+            rows: [
+                row(icon: "lock.shield", title: "Account", subtitle: "Manage your account and security", destination: .account),
+                row(icon: "button.programmable", title: "OneWay Button & Automations", subtitle: "Customize actions and automations", destination: .oneWayButtonAutomations),
+                row(icon: "number.circle.fill", title: "My Numbers", subtitle: "Manage your phone numbers", destination: .myNumbers),
+                row(icon: "wallet.pass.fill", title: "Wallet", subtitle: "Secure payments and balance", destination: .walletShortcut)
+            ]
+        )
+    }
+
+    private var privacyCommunicationSection: some View {
+        settingsSection(
+            title: "PRIVACY / COMMUNICATION",
+            rows: [
+                row(icon: "lock.shield", title: "Privacy & Identity", subtitle: "Control your privacy and identity", destination: .privacy),
+                row(icon: "dot.radiowaves.left.and.right", title: "Chirp Permissions", subtitle: "Manage device and app permissions", destination: .walkiePermissions),
+                row(icon: "checkmark.shield", title: "Spam Protection", subtitle: "Keep your inbox safe", destination: .spamProtection),
+                row(icon: "bubble.left.and.bubble.right", title: "Chats", subtitle: "Manage your conversations", destination: .chats),
+                row(icon: "bell", title: "Notifications", subtitle: "Manage alerts and preferences", destination: .notifications)
+            ]
+        )
+    }
+
+    private var systemToolRows: [SettingsRow] {
+        let rows = [
+            row(icon: "arrow.up.arrow.down", title: "Storage and data", subtitle: "Manage storage and data usage", destination: .storageAndData),
+            row(icon: "waveform.path.ecg", title: "Diagnostics", subtitle: "Monitor app health and performance", destination: .diagnostics)
+        ]
+        return rows
     }
 
     private var profileCard: some View {
         VStack(spacing: 0) {
-            ZStack(alignment: .topTrailing) {
-                VStack(spacing: 10) {
-                    Button {
+            HStack(spacing: 17) {
+                Button {
                         if myStory != nil {
                             isShowingMyStoryViewer = true
                         } else {
@@ -219,8 +264,8 @@ struct SettingsView: View {
                         }
                     } label: {
                         Circle()
-                            .fill(Theme.glassSurface)
-                            .frame(width: 88, height: 88)
+                            .fill(OneWayDesignSystem.Colors.panelElevated)
+                            .frame(width: 65, height: 65)
                             .overlay {
                                 if let data = profilePhotoData, let image = UIImage(data: data) {
                                     Image(uiImage: image)
@@ -229,94 +274,93 @@ struct SettingsView: View {
                                         .clipShape(Circle())
                                 } else {
                                     Text(initials(for: viewModel.profileText))
-                                        .font(.title.weight(.bold))
-                                        .foregroundStyle(Theme.textPrimary)
+                                        .font(.system(size: 27, weight: .black, design: .rounded))
+                                        .foregroundStyle(OneWayDesignSystem.Colors.text)
                                 }
                             }
+                            .overlay(Circle().stroke(OneWayDesignSystem.Colors.purpleGlow, lineWidth: 1))
                             .overlay(alignment: .bottomTrailing) {
                                 Circle()
-                                    .fill(Theme.primaryBlue)
-                                    .frame(width: 24, height: 24)
+                                    .fill(OneWayDesignSystem.Colors.deepPurple)
+                                    .frame(width: 29, height: 29)
                                     .overlay {
-                                        Image(systemName: "camera.fill")
-                                            .font(.caption2.weight(.bold))
-                                            .foregroundStyle(.white)
+                                        OneWayResolvedIcon(systemName: "camera.fill")
+                                            .font(.system(size: 13, weight: .bold))
+                                            .foregroundStyle(OneWayDesignSystem.Colors.purpleGlow)
                                     }
-                                    .shadow(color: Theme.primaryBlue.opacity(0.3), radius: 5, x: 0, y: 2)
+                                    .overlay(Circle().stroke(Color.blue, lineWidth: 1))
                             }
-                    }
-                    .buttonStyle(.plain)
-
-                    NavigationLink(value: Destination.profile) {
-                        VStack(spacing: 3) {
-                            Text(viewModel.profileText)
-                                .font(.system(size: 24, weight: .semibold))
-                                .foregroundStyle(Theme.textPrimary)
-                                .lineLimit(1)
-                            Text("Hello. I'm using OneWay.")
-                                .font(.title3)
-                                .foregroundStyle(Theme.textSecondary)
-                                .lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .center)
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        isShowingProfileCamera = true
-                    } label: {
-                        Label("Take Photo", systemImage: "camera.fill")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(Theme.textSecondary)
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        isShowingPhotoPicker = true
-                    } label: {
-                        Label("Choose Photo", systemImage: "photo.on.rectangle")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(Theme.textSecondary)
-                    }
-                    .buttonStyle(.plain)
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(myStory == nil ? "Choose profile photo" : "View my story")
 
-                EmptyView()
-            }
-            .padding(16)
-
-            Divider().overlay(Theme.divider)
-
-            NavigationLink(value: Destination.avatar) {
-                HStack(spacing: 14) {
-                    Image(systemName: "person.crop.circle.badge.sparkles")
-                        .font(.title3)
-                        .foregroundStyle(Theme.textPrimary)
-                        .frame(width: 30)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Avatar Studio")
-                            .font(.system(size: 26, weight: .regular))
-                            .foregroundStyle(Theme.textPrimary)
-                        Text("Advanced identity controls")
-                            .font(.caption)
-                            .foregroundStyle(Theme.textSecondary)
+                NavigationLink(value: Destination.identityDetails) {
+                    HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(viewModel.profileText)
+                            .font(.system(size: 22, weight: .semibold, design: .rounded))
+                            .foregroundStyle(OneWayDesignSystem.Colors.text)
+                            .lineLimit(1)
+                        Text(viewModel.profileSubtitle)
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundStyle(OneWayDesignSystem.Colors.secondaryText)
+                            .lineLimit(1)
                     }
                     Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.headline)
-                        .foregroundStyle(Theme.textMuted)
+                    OneWayResolvedIcon(systemName: "chevron.right")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundStyle(OneWayDesignSystem.Colors.secondaryText)
+                    }
+                    .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("settings.profile")
             }
-            .buttonStyle(.plain)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 9)
+
+            Divider()
+                .overlay(OneWayDesignSystem.Colors.border.opacity(0.55))
+                .padding(.leading, 100)
+
+            HStack(spacing: 0) {
+                Button { isShowingProfileCamera = true } label: {
+                    profilePhotoAction("Take Photo", icon: "camera.fill")
+                }
+                .buttonStyle(.plain)
+
+                Rectangle()
+                    .fill(OneWayDesignSystem.Colors.border.opacity(0.45))
+                    .frame(width: 1, height: 25)
+
+                Button { isShowingPhotoPicker = true } label: {
+                    profilePhotoAction("Choose Photo", icon: "photo.on.rectangle")
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(height: 45)
         }
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.06))
-                .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.divider, lineWidth: 1))
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(OneWayDesignSystem.Colors.panelGlass)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(OneWayDesignSystem.Colors.purpleGlow.opacity(0.7), lineWidth: 1)
+                )
+                .shadow(color: OneWayDesignSystem.Colors.purpleGlow.opacity(0.14), radius: 20, y: 10)
         )
+    }
+
+    private func profilePhotoAction(_ title: String, icon: String) -> some View {
+        HStack(spacing: 10) {
+            OneWayResolvedIcon(systemName: icon)
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(OneWayDesignSystem.Colors.purpleGlow)
+            Text(title)
+                .font(.system(size: 15, weight: .medium, design: .rounded))
+                .foregroundStyle(OneWayDesignSystem.Colors.secondaryText)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func loadProfilePhoto() async {
@@ -346,50 +390,94 @@ struct SettingsView: View {
         }
     }
 
+    private func settingsSection(title: String, rows: [SettingsRow]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 14, weight: .black, design: .rounded))
+                .foregroundStyle(OneWayDesignSystem.Colors.purplePrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .padding(.leading, 10)
+
+            settingsGroup(rows)
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
     private func settingsGroup(_ rows: [SettingsRow]) -> some View {
         VStack(spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, item in
                 NavigationLink(value: item.destination) {
-                    HStack(spacing: 14) {
-                        Image(systemName: item.icon)
-                            .font(.title3)
-                            .foregroundStyle(Theme.textPrimary)
-                            .frame(width: 30)
-                        Text(item.title)
-                            .font(.system(size: 23, weight: .regular))
-                            .foregroundStyle(Theme.textPrimary)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.headline)
-                            .foregroundStyle(Theme.textMuted)
+                    HStack(spacing: 10) {
+                        OneWayResolvedIcon(systemName: item.icon)
+                            .font(.system(size: 19, weight: .semibold))
+                            .foregroundStyle(OneWayDesignSystem.Colors.purpleGlow)
+                            .frame(width: 38, height: 38)
+                            .background(OneWayDesignSystem.Colors.deepPurple.opacity(0.74), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                    .stroke(OneWayDesignSystem.Colors.border.opacity(0.7), lineWidth: 0.7)
+                            )
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(item.title)
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundStyle(OneWayDesignSystem.Colors.text)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.72)
+                            Text(item.subtitle)
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
+                                .foregroundStyle(OneWayDesignSystem.Colors.secondaryText)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.72)
+                        }
+
+                        Spacer(minLength: 3)
+
+                        OneWayResolvedIcon(systemName: "chevron.right")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(OneWayDesignSystem.Colors.secondaryText)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 15)
+                    .padding(.horizontal, 12)
+                    .frame(height: 58)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier(item.accessibilityIdentifier)
 
                 if index < rows.count - 1 {
                     Divider()
-                        .overlay(Theme.divider)
-                        .padding(.leading, 60)
+                        .overlay(OneWayDesignSystem.Colors.border.opacity(0.5))
+                        .padding(.leading, 52)
+                        .padding(.trailing, 12)
                 }
             }
         }
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.06))
-                .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.divider, lineWidth: 1))
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(OneWayDesignSystem.Colors.panelGlass)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .stroke(OneWayDesignSystem.Colors.border.opacity(0.72), lineWidth: 1)
+                )
         )
     }
 
-    private func row(icon: String, title: String, destination: Destination) -> SettingsRow {
-        SettingsRow(icon: icon, title: title, destination: destination)
+    private func row(icon: String, title: String, subtitle: String, destination: Destination) -> SettingsRow {
+        SettingsRow(
+            icon: icon,
+            title: title,
+            subtitle: subtitle,
+            destination: destination,
+            accessibilityIdentifier: destination == .account ? "settings.account" : "settings.row.\(title)"
+        )
     }
 
     @ViewBuilder
     private func destinationView(for destination: Destination) -> some View {
         switch destination {
+        case .identityDetails:
+            OneWayContactIdentitiesView()
         case .profile:
             ProfileView(
                 authService: authService,
@@ -398,8 +486,6 @@ struct SettingsView: View {
                 storyService: storyService,
                 accountDeletionScheduler: accountDeletionScheduler
             )
-        case .avatar:
-            AvatarStudioView()
         case .lists:
             ListsView()
         case .broadcastMessages:
@@ -409,12 +495,21 @@ struct SettingsView: View {
         case .linkedDevices:
             DeviceSessionsView(service: deviceSessionService)
         case .account:
-            AccountSettingsDetailView(
-                burnButtonEnabled: $burnButtonEnabled,
-                cachePolicyText: viewModel.cachePolicyText
+            AccountView(
+                storyService: storyService,
+                safetyService: safetyService,
+                onSignOut: onSignOut
             )
+        case .oneWayButtonAutomations:
+            OneWayAutomationSettingsView()
+        case .myNumbers:
+            MyNumbersView()
+        case .walletShortcut:
+            WalletShortcutSettingsView()
         case .privacy:
-            SafetyCenterView(service: safetyService)
+            PrivacyIdentityView()
+        case .walkiePermissions:
+            WalkiePermissionsView()
         case .spamProtection:
             SpamProtectionView(service: safetyService)
         case .chats:
@@ -427,15 +522,16 @@ struct SettingsView: View {
                 onClearLocalData: { viewModel.clearLocalData() },
                 backupService: backupService
             )
+        case .platformReadiness:
+            OneWayPlatformReadinessView()
         case .helpAndFeedback:
             HelpFeedbackView()
         case .inviteFriend:
-            AddFriendView(friendService: friendService)
+            AddFriendView(friendService: friendService, ownsNavigationStack: false)
         case .importedPages:
             ImportedClonePagesView(
                 messagingService: messagingService,
                 friendService: friendService,
-                storyService: storyService,
                 groupService: groupService,
                 contactImportService: contactImportService,
                 importedContactsStore: importedContactsStore,
@@ -449,6 +545,8 @@ struct SettingsView: View {
             )
         case .diagnostics:
             DiagnosticsView(systemHealthManager: systemHealthManager)
+        case .developerQA:
+            DeveloperQAView(communityService: communityService)
         }
     }
 
@@ -520,7 +618,232 @@ struct SettingsView: View {
 private struct SettingsRow {
     let icon: String
     let title: String
+    let subtitle: String
     let destination: SettingsView.Destination
+    let accessibilityIdentifier: String
+}
+
+private struct SettingsReferenceBackground: View {
+    var body: some View {
+        ZStack {
+            Color(hex: 0x040611)
+
+            LinearGradient(
+                colors: [
+                    Color(hex: 0x050713),
+                    Color(hex: 0x08091C),
+                    Color(hex: 0x0C0925),
+                    Color(hex: 0x12082F)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+
+            RadialGradient(
+                colors: [
+                    OneWayDesignSystem.Colors.purplePrimary.opacity(0.16),
+                    Color.clear
+                ],
+                center: .bottomLeading,
+                startRadius: 20,
+                endRadius: 330
+            )
+
+            RadialGradient(
+                colors: [
+                    Color(hex: 0x5030C8).opacity(0.12),
+                    Color.clear
+                ],
+                center: .bottomTrailing,
+                startRadius: 30,
+                endRadius: 360
+            )
+        }
+        .ignoresSafeArea()
+    }
+}
+
+private struct OneWayContactIdentitiesView: View {
+    @State private var identity: OneWayIdentity?
+    @State private var numbers: [OneWayNumber] = []
+    @State private var accountEmail: String?
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Your OneWay Contact IDs")
+                        .font(.system(size: 30, weight: .black, design: .rounded))
+                        .foregroundStyle(OneWayDesignSystem.Colors.text)
+                    Text("Every address and number people can use to reach you on OneWay.")
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(OneWayDesignSystem.Colors.secondaryText)
+                }
+
+                if isLoading {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                            .tint(OneWayDesignSystem.Colors.purpleGlow)
+                        Text("Loading your contact IDs…")
+                            .foregroundStyle(OneWayDesignSystem.Colors.secondaryText)
+                    }
+                    .identityCard()
+                } else {
+                    identitySection(
+                        title: "OneWay IDs",
+                        icon: "person.text.rectangle.fill",
+                        values: oneWayIDs
+                    )
+                    identitySection(
+                        title: "Numbers",
+                        icon: "number.circle.fill",
+                        values: numberValues
+                    )
+                    identitySection(
+                        title: "Chirp",
+                        icon: "dot.radiowaves.left.and.right",
+                        values: chirpValues
+                    )
+                    identitySection(
+                        title: "Email",
+                        icon: "envelope.fill",
+                        values: emailValues
+                    )
+                }
+
+                if let errorMessage {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(errorMessage)
+                            .foregroundStyle(Color.red.opacity(0.9))
+                        Button("Try Again") { Task { await load() } }
+                            .buttonStyle(.borderedProminent)
+                            .tint(OneWayDesignSystem.Colors.purplePrimary)
+                    }
+                    .identityCard()
+                }
+            }
+            .padding(18)
+            .padding(.bottom, 44)
+        }
+        .background { SettingsReferenceBackground() }
+        .navigationTitle("My Contact IDs")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+        .refreshable { await load() }
+    }
+
+    private var oneWayIDs: [(String, String)] {
+        guard let identity else { return [] }
+        var values = [("OneWay ID", identity.onewayId)]
+        if let username = identity.username, !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            values.append(("Username", username.hasPrefix("@") ? username : "@\(username)"))
+        }
+        return values
+    }
+
+    private var numberValues: [(String, String)] {
+        numbers.map { number in
+            let label = number.isPrimary ? "Primary OneWay number" : (number.label ?? "OneWay number")
+            return (label, number.number)
+        }
+    }
+
+    private var chirpValues: [(String, String)] {
+        guard let chirp = identity?.chirpId.trimmingCharacters(in: .whitespacesAndNewlines), !chirp.isEmpty else { return [] }
+        return [("Chirp number", chirp)]
+    }
+
+    private var emailValues: [(String, String)] {
+        var values: [(String, String)] = []
+        if let alias = identity?.emailAlias.trimmingCharacters(in: .whitespacesAndNewlines), !alias.isEmpty {
+            values.append(("OneWay email", alias))
+        }
+        if let accountEmail = accountEmail?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !accountEmail.isEmpty,
+           !values.contains(where: { $0.1.caseInsensitiveCompare(accountEmail) == .orderedSame }) {
+            values.append(("Account email", accountEmail))
+        }
+        return values
+    }
+
+    @ViewBuilder
+    private func identitySection(title: String, icon: String, values: [(String, String)]) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            OneWayResolvedLabel(title, systemImage: icon)
+                .font(.title3.weight(.black))
+                .foregroundStyle(OneWayDesignSystem.Colors.purpleGlow)
+
+            if values.isEmpty {
+                Text("No \(title.lowercased()) assigned yet.")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(OneWayDesignSystem.Colors.secondaryText)
+            } else {
+                ForEach(Array(values.enumerated()), id: \.offset) { index, value in
+                    if index > 0 {
+                        Divider().overlay(OneWayDesignSystem.Colors.border.opacity(0.55))
+                    }
+                    HStack(alignment: .center, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(value.0)
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(OneWayDesignSystem.Colors.secondaryText)
+                            Text(value.1)
+                                .font(.system(.body, design: .rounded, weight: .bold))
+                                .foregroundStyle(OneWayDesignSystem.Colors.text)
+                                .textSelection(.enabled)
+                        }
+                        Spacer(minLength: 8)
+                        Button {
+                            UIPasteboard.general.string = value.1
+                        } label: {
+                            OneWayResolvedIcon(systemName: "doc.on.doc")
+                                .foregroundStyle(OneWayDesignSystem.Colors.purpleGlow)
+                                .frame(width: 44, height: 44)
+                                .background(OneWayDesignSystem.Colors.deepPurple.opacity(0.75), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Copy \(value.0)")
+                    }
+                }
+            }
+        }
+        .identityCard()
+    }
+
+    @MainActor
+    private func load() async {
+        isLoading = true
+        errorMessage = nil
+        do {
+            async let identityRequest = OneWayIdentityService.shared.fetchMyIdentity()
+            async let numbersRequest = OneWayNumberService.shared.fetchMyNumbers()
+            async let userRequest = AuthAPIService.shared.currentAuthenticatedUser()
+            let (loadedIdentity, loadedNumbers, loadedUser) = try await (identityRequest, numbersRequest, userRequest)
+            identity = loadedIdentity
+            numbers = loadedNumbers.numbers
+            accountEmail = loadedUser.email
+        } catch {
+            errorMessage = "We couldn't load all of your OneWay contact IDs. Check your connection and try again."
+        }
+        isLoading = false
+    }
+}
+
+private extension View {
+    func identityCard() -> some View {
+        padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                OneWayDesignSystem.Colors.panelGlass,
+                in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(OneWayDesignSystem.Colors.purpleGlow.opacity(0.55), lineWidth: 1)
+            )
+    }
 }
 
 private struct ListsView: View {
@@ -529,9 +852,9 @@ private struct ListsView: View {
     var body: some View {
         List {
             Section("Smart Lists") {
-                Label("Unread", systemImage: "envelope.badge")
-                Label("Groups", systemImage: "person.3")
-                Label("Pinned", systemImage: "pin")
+                OneWayResolvedLabel("Unread", systemImage: "envelope.badge")
+                OneWayResolvedLabel("Groups", systemImage: "person.3")
+                OneWayResolvedLabel("Pinned", systemImage: "pin")
             }
             if !customLists.isEmpty {
                 Section("Custom") {
@@ -565,8 +888,8 @@ private struct BroadcastMessagesView: View {
                     .lineLimit(3...6)
             }
             Section("Audience") {
-                Label("Friends only", systemImage: "person.2")
-                Label("No pending contacts", systemImage: "checkmark.seal")
+                OneWayResolvedLabel("Friends only", systemImage: "person.2")
+                OneWayResolvedLabel("No pending contacts", systemImage: "checkmark.seal")
             }
             Section {
                 Button("Send Broadcast") {
@@ -591,7 +914,7 @@ private struct StarredMessagesView: View {
     var body: some View {
         List {
             Section("Starred") {
-                Label("No starred messages yet.", systemImage: "star")
+                OneWayResolvedLabel("No starred messages yet.", systemImage: "star")
                     .foregroundStyle(Theme.textSecondary)
             }
         }
@@ -608,9 +931,9 @@ private struct HelpFeedbackView: View {
     var body: some View {
         Form {
             Section("Help") {
-                Label("FAQ", systemImage: "questionmark.circle")
-                Label("Contact Support", systemImage: "headphones")
-                Label("Safety Report", systemImage: "exclamationmark.shield")
+                OneWayResolvedLabel("FAQ", systemImage: "questionmark.circle")
+                OneWayResolvedLabel("Contact Support", systemImage: "headphones")
+                OneWayResolvedLabel("Safety Report", systemImage: "exclamationmark.shield")
             }
             Section("Feedback") {
                 TextField("Tell us what to improve...", text: $feedback, axis: .vertical)
@@ -632,40 +955,108 @@ private struct HelpFeedbackView: View {
 private struct DiagnosticsView: View {
     let systemHealthManager: SystemHealthManager
     @State private var statuses: [ServiceHealthStatus] = []
+    @State private var bridgePreflight: PSTNBridgePreflight?
+    @State private var bridgeStatusError: String?
+    @State private var isRefreshingBridge = false
 
     var body: some View {
         List {
-            ForEach(statuses) { status in
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text(status.serviceName)
-                            .font(.headline)
-                        Spacer()
-                        Circle()
-                            .fill(status.isActive ? Color.green : Color.red)
-                            .frame(width: 10, height: 10)
+            Section("OneWay Bridge Status") {
+                if let preflight = bridgePreflight {
+                    diagnosticRow("Provider", value: preflight.provider)
+                    diagnosticRow("Mode", value: preflight.mode)
+                    diagnosticRow("LiveKit Configured", value: yesNo(preflight.liveKitConfigured))
+                    diagnosticRow("SIP Trunk Configured", value: yesNo(preflight.sipTrunkConfigured))
+                    diagnosticRow("Provider Configured", value: yesNo(preflight.providerConfigured))
+                    diagnosticRow("Webhook Configured", value: yesNo(preflight.webhookBaseUrlConfigured))
+                    diagnosticRow("Media Bridge Enabled", value: yesNo(preflight.mediaBridgeEnabled))
+
+                    if !preflight.missing.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Missing Env")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            ForEach(preflight.missing, id: \.self) { item in
+                                Text("• \(item)")
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
+                            }
+                        }
+                        .padding(.vertical, 4)
                     }
-                    Text("Last check: \(status.lastCheckedAt.formatted())")
-                        .font(.caption)
+
+                    if !preflight.warnings.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Warnings")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            ForEach(preflight.warnings, id: \.self) { warning in
+                                Text("• \(warning)")
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                } else if let bridgeStatusError {
+                    Text("Bridge status unavailable: \(bridgeStatusError)")
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                } else {
+                    Text("Loading OneWay Bridge status…")
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
-                    if let error = status.lastError {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
-                    if let sync = status.lastSyncAt {
-                        Text("Last sync: \(sync.formatted())")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    if !status.dependencies.isEmpty {
-                        let deps = status.dependencies.joined(separator: ", ")
-                        Text("Depends on: \(deps)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
                 }
-                .padding(.vertical, 4)
+
+                Button(isRefreshingBridge ? "Refreshing Bridge Status…" : "Refresh Bridge Status") {
+                    Task { await refreshBridgeStatus() }
+                }
+                .disabled(isRefreshingBridge)
+            }
+
+            Section("Service Health") {
+                if statuses.isEmpty {
+                    Text("No verified service checks are available.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(statuses.filter { !$0.serviceName.lowercased().contains("stub") }) { status in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(status.serviceName)
+                                .font(.headline)
+                            Spacer()
+                            Circle()
+                                .fill(status.isActive ? Color.green : Color.red)
+                                .frame(width: 10, height: 10)
+                        }
+                        Text("Last check: \(status.lastCheckedAt.formatted())")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if let error = status.lastError {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                        if let sync = status.lastSyncAt {
+                            Text("Last sync: \(sync.formatted())")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        if !status.dependencies.isEmpty {
+                            let deps = status.dependencies.joined(separator: ", ")
+                            Text("Depends on: \(deps)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+
+            Section("Application") {
+                diagnosticRow("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown")
+                diagnosticRow("Build", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown")
+                diagnosticRow("Environment", value: Self.environmentName)
             }
         }
         .navigationTitle("Diagnostics")
@@ -673,27 +1064,65 @@ private struct DiagnosticsView: View {
         .background { SideMenuBackground() }
         .oneWayMenuBar()
         .task {
-            statuses = await systemHealthManager.runStartupChecks()
+            await refreshDiagnostics()
         }
+    }
+
+    private func refreshDiagnostics() async {
+        async let serviceStatuses = systemHealthManager.runStartupChecks()
+        statuses = await serviceStatuses
+        await refreshBridgeStatus()
+    }
+
+    private func refreshBridgeStatus() async {
+        guard !isRefreshingBridge else { return }
+        isRefreshingBridge = true
+        defer { isRefreshingBridge = false }
+
+        do {
+            let preflight = try await PSTNBridgePreflightService.shared.fetchStatus()
+            bridgePreflight = preflight
+            bridgeStatusError = nil
+        } catch {
+            bridgePreflight = nil
+            bridgeStatusError = error.localizedDescription
+        }
+    }
+
+    private func diagnosticRow(_ title: String, value: String) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(value)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private func yesNo(_ value: Bool) -> String {
+        value ? "Yes" : "No"
+    }
+
+    private static var environmentName: String {
+        #if DEBUG
+        return "Development"
+        #else
+        return "Production"
+        #endif
     }
 }
 
 private struct AccountSettingsDetailView: View {
-    @Binding var burnButtonEnabled: Bool
     let cachePolicyText: String
+    let onAccountDeleted: () -> Void
 
     var body: some View {
         Form {
-            Section("Account") {
-                Toggle("Enable Burn Button", isOn: $burnButtonEnabled)
-                Text("When enabled, a movable burn button is shown globally across tabs.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
             Section("Local Storage") {
                 LabeledContent("Message cache policy", value: cachePolicyText)
             }
+
         }
         .navigationTitle("Account")
         .scrollContentBackground(.hidden)
@@ -711,6 +1140,8 @@ private struct SpamProtectionView: View {
     @State private var alsoReport = true
     @State private var blockedHandles: [String] = []
     @State private var infoMessage: String?
+    @State private var isSaving = false
+    @State private var isLoading = false
 
     var body: some View {
         Form {
@@ -727,7 +1158,7 @@ private struct SpamProtectionView: View {
                 Button("Block Immediately", role: .destructive) {
                     Task { await blockNow() }
                 }
-                .disabled(suspectHandle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(isSaving || suspectHandle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                 Text("This instantly blocks the account from communicating with you.")
                     .font(.footnote)
@@ -762,7 +1193,9 @@ private struct SpamProtectionView: View {
 
     private func blockNow() async {
         let handle = suspectHandle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !handle.isEmpty else { return }
+        guard !handle.isEmpty, !isSaving else { return }
+        isSaving = true
+        defer { isSaving = false }
 
         do {
             try await service.block(handle: handle)
@@ -778,7 +1211,14 @@ private struct SpamProtectionView: View {
     }
 
     private func refreshBlocked() async {
-        blockedHandles = (try? await service.fetchBlockedHandles()) ?? []
+        guard !isLoading else { return }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            blockedHandles = try await service.fetchBlockedHandles()
+        } catch {
+            infoMessage = "Unable to load blocked accounts. Pull back and retry when connected."
+        }
     }
 }
 
@@ -789,8 +1229,9 @@ private struct ChatSettingsDetailView: View {
         Form {
             Section("Chats") {
                 LabeledContent("Message cache policy", value: cachePolicyText)
-                Toggle("Enter to Send", isOn: .constant(true))
-                Toggle("Media Auto-Download", isOn: .constant(false))
+                Text("Additional chat defaults are unavailable until they are enforced by the messaging service.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         }
         .navigationTitle("Chats")
@@ -802,19 +1243,82 @@ private struct ChatSettingsDetailView: View {
 }
 
 private struct NotificationsDetailView: View {
-    @State private var previews = true
-    @State private var sounds = true
-    @State private var vibration = true
+    @AppStorage(OneWayNotificationPreferences.enabledKey) private var messagesEnabled = true
+    @AppStorage(OneWayNotificationPreferences.previewsKey) private var previews = true
+    @AppStorage(OneWayNotificationPreferences.soundsKey) private var sounds = true
+    @AppStorage(OneWayNotificationPreferences.vibrationKey) private var vibration = true
+    @State private var authorizationStatus: UNAuthorizationStatus = .notDetermined
 
     var body: some View {
         Form {
+            Section("iOS Permission") {
+                LabeledContent("System notifications", value: authorizationLabel)
+                if authorizationStatus == .denied {
+                    Button("Open iPhone Settings") { openSystemSettings() }
+                }
+            }
             Section("Notifications") {
+                Toggle("Message Notifications", isOn: $messagesEnabled)
                 Toggle("Message Previews", isOn: $previews)
+                    .disabled(!messagesEnabled)
                 Toggle("Sounds", isOn: $sounds)
+                    .disabled(!messagesEnabled)
                 Toggle("Vibration", isOn: $vibration)
+                    .disabled(!messagesEnabled)
             }
         }
         .navigationTitle("Notifications")
+        .scrollContentBackground(.hidden)
+        .background {
+            SideMenuBackground()
+        }
+        .onChange(of: messagesEnabled) { _, _ in AppDelegate.shared.refreshAlertNotificationPreferences() }
+        .onChange(of: previews) { _, _ in AppDelegate.shared.refreshAlertNotificationPreferences() }
+        .onChange(of: sounds) { _, _ in AppDelegate.shared.refreshAlertNotificationPreferences() }
+        .task { await refreshAuthorizationStatus() }
+    }
+
+    private var authorizationLabel: String {
+        switch authorizationStatus {
+        case .authorized, .provisional, .ephemeral: return "Allowed"
+        case .denied: return "Disabled in iOS"
+        case .notDetermined: return "Not requested"
+        @unknown default: return "Unknown"
+        }
+    }
+
+    private func refreshAuthorizationStatus() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        authorizationStatus = settings.authorizationStatus
+    }
+
+    private func openSystemSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+    }
+}
+
+private struct WalletShortcutSettingsView: View {
+    @AppStorage("oneway.walletShortcut.visible") private var showEverywhere = true
+    @AppStorage("oneway.walletShortcut.hideDuringCalls") private var hideDuringCalls = true
+
+    var body: some View {
+        Form {
+            Section("Global Wallet Shortcut") {
+                Toggle("Show on every page", isOn: $showEverywhere)
+            }
+
+            Section("Safety") {
+                Toggle("Hide during calls", isOn: $hideDuringCalls)
+            }
+
+            Section {
+                Text("The global shortcut loads only lightweight status and never exposes balances before Wallet authentication.")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+        }
+        .navigationTitle("Wallet")
         .scrollContentBackground(.hidden)
         .background {
             SideMenuBackground()
@@ -831,15 +1335,18 @@ private struct StorageDataDetailView: View {
         Form {
             Section("Storage") {
                 LabeledContent("Cache policy", value: cachePolicyText)
-                Button("Clear local data") {
+                Button("Clear Cache") {
                     onClearLocalData()
                 }
+                Text("Removes reproducible in-memory chat summaries and encrypted payload cache only. Account credentials and keys are preserved.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
-            Section("Backup") {
-                NavigationLink("Backup & Restore") {
-                    BackupRestoreView(service: backupService)
-                }
+            Section("Availability") {
+                Text("Media management, cellular download controls, and encrypted backup are hidden until their storage services enforce them.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         }
         .navigationTitle("Storage and Data")

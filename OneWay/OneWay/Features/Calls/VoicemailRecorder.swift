@@ -39,6 +39,13 @@ final class VoicemailRecorder: ObservableObject {
     /// in the UI on the first tap).
     func start() throws {
         #if canImport(AVFoundation)
+        guard !MediaModeCoordinator.shared.isCallActive else {
+            #if DEBUG
+            print("voicemail.audio.recording.blocked reason=activeCall timestamp=\(ISO8601DateFormatter().string(from: Date()))")
+            #endif
+            throw RecorderError.activeCallInProgress
+        }
+
         if case .idle = state {
             // ok
         } else {
@@ -104,7 +111,13 @@ final class VoicemailRecorder: ObservableObject {
 
         // Deactivate the session so the rest of the app's audio (haptics,
         // ringtones, music player) isn't held in record mode.
-        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+        if !MediaModeCoordinator.shared.isCallActive {
+            try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+        } else {
+            #if DEBUG
+            print("voicemail.audio.deactivation.skipped reason=activeCall timestamp=\(ISO8601DateFormatter().string(from: Date()))")
+            #endif
+        }
 
         if FileManager.default.fileExists(atPath: url.path) {
             let duration = started.map { Date().timeIntervalSince($0) } ?? 0
@@ -129,7 +142,13 @@ final class VoicemailRecorder: ObservableObject {
             try? FileManager.default.removeItem(at: recorder.url)
         }
         recorder = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+        if !MediaModeCoordinator.shared.isCallActive {
+            try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+        } else {
+            #if DEBUG
+            print("voicemail.audio.cancel_deactivation.skipped reason=activeCall timestamp=\(ISO8601DateFormatter().string(from: Date()))")
+            #endif
+        }
         #endif
         state = .idle
     }
@@ -152,12 +171,14 @@ final class VoicemailRecorder: ObservableObject {
         case prepareFailed
         case recordFailed
         case unavailable
+        case activeCallInProgress
 
         var errorDescription: String? {
             switch self {
             case .prepareFailed: return "AVAudioRecorder failed to prepare."
             case .recordFailed:  return "AVAudioRecorder refused to start."
             case .unavailable:   return "Audio recording is not available on this build."
+            case .activeCallInProgress: return "Finish the active call before recording voicemail."
             }
         }
     }

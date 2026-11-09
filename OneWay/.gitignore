@@ -10,6 +10,7 @@ web-build/
 *.p12
 *.key
 *.mobileprovision
+server/secrets/
 
 # Metro
 .metro-health-check*
@@ -18,6 +19,8 @@ web-build/
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+.privacy-maintenance-state.json
+server/.privacy-maintenance-state.json
 
 # macOS
 .DS_Store

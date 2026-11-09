@@ -15,10 +15,13 @@ WORKDIR /app
 
 COPY package.json package-lock.json* ./
 RUN npm ci
+# Ensure Twilio SDK is present in runtime even if local lockfiles lag behind.
+RUN npm install twilio --no-save
 
 COPY tsconfig.json ./
 COPY prisma ./prisma
 COPY src ./src
+COPY scripts ./scripts
 
 RUN npx prisma generate
 RUN npm run build
@@ -26,32 +29,36 @@ RUN npm run build
 # ---- Runtime ---------------------------------------------------------------
 FROM node:22-alpine AS runtime
 
-RUN apk add --no-cache libc6-compat openssl tini
+RUN apk add --no-cache libc6-compat openssl tini su-exec
 
 WORKDIR /app
+ARG GIT_COMMIT_SHA=unknown
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV GIT_COMMIT_SHA=$GIT_COMMIT_SHA
 
 # Drop privileges. UID/GID match the official `node` user.
-RUN addgroup -g 1001 -S oneway && adduser -u 1001 -S oneway -G oneway
+RUN addgroup -g 1001 -S oneway \
+    && adduser -u 1001 -S -s /bin/sh oneway -G oneway \
+    && mkdir -p /home/oneway/.ssh \
+    && chmod 0700 /home/oneway/.ssh \
+    && chown -R oneway:oneway /home/oneway/.ssh
 
 # Pre-create persistent dirs the app expects to write to.
-RUN mkdir -p /app/uploads /app/data && chown -R oneway:oneway /app
+RUN mkdir -p /var/lib/oneway/uploads /app/data && chown -R oneway:oneway /var/lib/oneway /app
 
 COPY --from=builder --chown=oneway:oneway /app/package.json /app/package-lock.json* ./
 COPY --from=builder --chown=oneway:oneway /app/node_modules ./node_modules
 COPY --from=builder --chown=oneway:oneway /app/dist ./dist
 COPY --from=builder --chown=oneway:oneway /app/prisma ./prisma
+COPY --from=builder --chown=oneway:oneway /app/scripts ./scripts
 
-# Volume mount points — voicemails (when local), Prisma data, env-configured
-# secrets like the APNs .p8.
-VOLUME ["/app/uploads", "/app/data", "/etc/oneway"]
+# Render mounts the production persistent disk at /app/data. Keep the
+# directories in the image as well so boot remains deterministic before the
+# disk is attached and in local Docker runs.
 
-USER oneway
 EXPOSE 3000
 
 # tini = proper PID 1 reaping for SIGTERM forwarding.
 ENTRYPOINT ["/sbin/tini", "--"]
-# Run `prisma migrate deploy` then start the server. `migrate deploy` is
-# idempotent — safe on every container start.
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
+CMD ["sh", "/app/scripts/render-entrypoint.sh"]

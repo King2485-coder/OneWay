@@ -19,6 +19,19 @@ struct NetworkPushTokenRegistrar: PushTokenRegistering {
         await deleteIgnoringErrors(path: "api/push/register")
     }
 
+    func registerAlert(token: String, environment: String) async {
+        let notificationsEnabled = UserDefaults.standard.object(forKey: OneWayNotificationPreferences.enabledKey) as? Bool ?? true
+        let previewsEnabled = UserDefaults.standard.object(forKey: OneWayNotificationPreferences.previewsKey) as? Bool ?? true
+        let soundsEnabled = UserDefaults.standard.object(forKey: OneWayNotificationPreferences.soundsKey) as? Bool ?? true
+        let previewMode = notificationsEnabled ? (previewsEnabled ? "sender_subject" : "generic") : "none"
+        let body: [String: Any] = ["token": token, "environment": environment, "previewMode": previewMode, "soundEnabled": soundsEnabled]
+        await postIgnoringErrors(path: "api/push/alerts/register", body: body, retries: 2)
+    }
+
+    func unregisterAlert(token: String) async {
+        await deleteIgnoringErrors(path: "api/push/alerts/register/\(token)")
+    }
+
     private func postIgnoringErrors(path: String, body: [String: Any], retries: Int) async {
         var attempt = 0
         while attempt <= retries {
@@ -35,7 +48,7 @@ struct NetworkPushTokenRegistrar: PushTokenRegistering {
                 }
             } catch {
                 #if DEBUG
-                print("[push] register attempt \(attempt + 1) failed: \(error)")
+                print("[push] register attempt \(attempt + 1) failed: \(PrivacyLog.redact(error.localizedDescription))")
                 #endif
             }
             attempt += 1

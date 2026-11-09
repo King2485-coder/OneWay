@@ -27,14 +27,11 @@ struct SupabaseDomainService: DomainService {
     }
 
     func isSlugAvailable(_ slug: String) async throws -> Bool {
-        let rows: [DomainRow] = try await client
-            .from("ow_domains")
-            .select("id, slug")
-            .eq("slug", value: slug)
-            .limit(1)
+        let available: Bool = try await client
+            .rpc("is_domain_available", params: ["candidate_slug": slug])
             .execute()
             .value
-        return rows.isEmpty
+        return available
     }
 
     func registerDomain(
@@ -75,25 +72,21 @@ struct SupabaseDomainService: DomainService {
     }
 
     func directory(limit: Int) async throws -> [DirectoryEntry] {
-        struct Joined: Decodable {
-            let slug: String
-            let ow_sites: SiteSummary?
-        }
-        struct SiteSummary: Decodable {
+        struct PublishedSite: Decodable {
+            let domain_slug: String
             let title: String?
             let description: String?
         }
 
-        let rows: [Joined] = try await client
-            .from("ow_domains")
-            .select("slug, ow_sites(title, description)")
-            .eq("status", value: "active")
-            .not("site_id", operator: .is, value: "null")
+        let rows: [PublishedSite] = try await client
+            .from("ow_sites")
+            .select("domain_slug, title, description")
+            .eq("published", value: true)
             .limit(limit)
             .execute()
             .value
         return rows.map {
-            DirectoryEntry(slug: $0.slug, title: $0.ow_sites?.title, description: $0.ow_sites?.description)
+            DirectoryEntry(slug: $0.domain_slug, title: $0.title, description: $0.description)
         }
     }
 }

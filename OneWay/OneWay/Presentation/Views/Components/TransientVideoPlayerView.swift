@@ -25,6 +25,7 @@ struct TransientVideoPlayerView: View {
         }
     }
 
+    @MainActor
     private func preparePlayerIfNeeded() {
         guard player == nil else { return }
         let directory = FileManager.default.temporaryDirectory
@@ -33,6 +34,18 @@ struct TransientVideoPlayerView: View {
         do {
             try videoData.write(to: fileURL, options: .atomic)
             tempURL = fileURL
+            SoundDiagnostics.logAudioPlayRequest(
+                filename: fileURL.lastPathComponent,
+                soundID: fileURL.absoluteString,
+                systemSoundID: nil,
+                avAudioPlayerURL: nil,
+                avPlayerURL: fileURL.absoluteString,
+                category: .mediaPlayback,
+                callId: nil,
+                sourceFile: #fileID,
+                sourceFunction: #function,
+                line: #line
+            )
             player = AVPlayer(url: fileURL)
         } catch {
             cleanup()

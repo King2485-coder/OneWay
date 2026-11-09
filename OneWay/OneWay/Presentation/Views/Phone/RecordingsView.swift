@@ -3,13 +3,15 @@ import AVKit
 
 struct RecordingsView: View {
     @State private var recordings: [CallRecording] = []
-    @State private var selectedURL: URL?
+    @State private var selectedRecordingURL: IdentifiedURL?
 
     var body: some View {
         NavigationStack {
             List(recordings) { recording in
                 Button {
-                    selectedURL = URL(string: recording.fileUrl)
+                    if let url = URL(string: recording.fileUrl) {
+                        selectedRecordingURL = IdentifiedURL(url: url)
+                    }
                 } label: {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(recording.roomName)
@@ -25,14 +27,51 @@ struct RecordingsView: View {
             .task {
                 recordings = (try? await RecordingService.shared.fetchRecordings()) ?? []
             }
-            .sheet(item: $selectedURL) { url in
-                VideoPlayer(player: AVPlayer(url: url))
-                    .ignoresSafeArea()
+            .sheet(item: $selectedRecordingURL) { item in
+                RecordedVideoPlayerView(url: item.url)
             }
         }
     }
 }
 
-extension URL: Identifiable {
-    public var id: String { absoluteString }
+private struct RecordedVideoPlayerView: View {
+    let url: URL
+
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        Group {
+            if let player {
+                VideoPlayer(player: player)
+            } else {
+                ProgressView("Loading video...")
+            }
+        }
+        .onAppear {
+            guard player == nil else { return }
+            SoundDiagnostics.logAudioPlayRequest(
+                filename: url.lastPathComponent,
+                soundID: url.absoluteString,
+                systemSoundID: nil,
+                avAudioPlayerURL: nil,
+                avPlayerURL: url.absoluteString,
+                category: .mediaPlayback,
+                callId: nil,
+                sourceFile: #fileID,
+                sourceFunction: #function,
+                line: #line
+            )
+            player = AVPlayer(url: url)
+        }
+        .onDisappear {
+            player?.pause()
+            player = nil
+        }
+        .ignoresSafeArea()
+    }
+}
+
+private struct IdentifiedURL: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
 }

@@ -1,5 +1,5 @@
 import Foundation
-import Contacts
+@preconcurrency import Contacts
 
 final class DeviceContactImportService: ContactImportService {
     private let store = CNContactStore()
@@ -37,53 +37,88 @@ final class DeviceContactImportService: ContactImportService {
     }
 
     func importContacts(limit: Int? = 200) async throws -> [ContactEntry] {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    let keys: [CNKeyDescriptor] = [
-                        CNContactGivenNameKey as CNKeyDescriptor,
-                        CNContactFamilyNameKey as CNKeyDescriptor,
-                        CNContactPhoneNumbersKey as CNKeyDescriptor
-                    ]
+        return try await Task.detached(priority: .userInitiated) {
+            let store = CNContactStore()
+            let request = CNContactFetchRequest(keysToFetch: ContactKeys.fullProfile)
+            request.unifyResults = true
+            request.sortOrder = .userDefault
+            var entries: [ContactEntry] = []
+            var seenIDs = Set<String>()
 
-                    let request = CNContactFetchRequest(keysToFetch: keys)
-                    var entries: [ContactEntry] = []
+            try store.enumerateContacts(with: request) { contact, stop in
+                let display = Self.displayName(for: contact)
 
-                    try self.store.enumerateContacts(with: request) { contact, stop in
-                        guard let phone = contact.phoneNumbers.first?.value.stringValue,
-                              !phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                            return
+                let phoneNumbers = contact.phoneNumbers
+                    .map(\.value.stringValue)
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+
+                let emailAddresses = contact.emailAddresses
+                    .map { String($0.value) }
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+
+                let reachableValues: [(raw: String, normalized: String)] = {
+                    if !phoneNumbers.isEmpty {
+                        return phoneNumbers.compactMap { phone in
+                            let normalized = phone.filter(\.isNumber)
+                            guard !normalized.isEmpty else { return nil }
+                            return (raw: phone, normalized: normalized)
                         }
+                    }
 
-                        let name = "\(contact.givenName) \(contact.familyName)"
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                        let display = name.isEmpty ? "Unknown" : name
-                        let normalized = self.normalizePhone(phone)
-                        entries.append(
-                            ContactEntry(
-                                id: "\(display)-\(normalized)",
-                                displayName: display,
-                                phoneNumber: phone
-                            )
+                    return emailAddresses.map { email in
+                        (raw: email, normalized: email.lowercased())
+                    }
+                }()
+
+                guard !reachableValues.isEmpty else {
+                    return
+                }
+
+                for value in reachableValues {
+                    let uniqueID = "\(contact.identifier)-\(value.normalized)"
+                    guard seenIDs.insert(uniqueID).inserted else { continue }
+
+                    entries.append(
+                        ContactEntry(
+                            id: uniqueID,
+                            displayName: display,
+                            phoneNumber: value.raw
                         )
+                    )
 
-                        if let limit, entries.count >= limit {
-                            stop.pointee = true
-                        }
+                    if let limit, entries.count >= limit {
+                        stop.pointee = true
+                        break
                     }
+                }
 
-                    let sorted = entries.sorted {
-                        $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
-                    }
-                    continuation.resume(returning: sorted)
-                } catch {
-                    continuation.resume(throwing: error)
+                if let limit, entries.count >= limit {
+                    stop.pointee = true
                 }
             }
-        }
+
+            return entries.sorted {
+                $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+            }
+        }.value
     }
 
-    private func normalizePhone(_ value: String) -> String {
-        value.filter(\.isNumber)
+    private static func displayName(for contact: CNContact) -> String {
+        let formatted = CNContactFormatter.string(from: contact, style: .fullName)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let formatted, !formatted.isEmpty {
+            return formatted
+        }
+
+        let organization = contact.organizationName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !organization.isEmpty {
+            return organization
+        }
+
+        return "Unknown"
     }
 }
+    

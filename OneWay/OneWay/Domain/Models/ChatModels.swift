@@ -12,6 +12,8 @@ enum CallType: String, CaseIterable {
 
 enum CallConnectionState: String, Codable, CaseIterable {
     case ringing
+    case waitingForAudioActivation
+    case joining
     case connecting
     case connected
     case reconnecting
@@ -25,7 +27,7 @@ enum MessageDirection {
     case outgoing
 }
 
-enum MessageDeliveryStatus: String {
+enum MessageDeliveryStatus: String, Codable {
     case sending
     case sent
     case delivered
@@ -36,7 +38,37 @@ enum MessageDeliveryStatus: String {
 enum MediaType: String, Codable {
     case photo
     case video
+    case audio
     case file
+}
+
+enum DisappearingMessageMode: String, Codable, CaseIterable {
+    case off
+    case afterRead = "after_read"
+}
+
+enum MessageDisappearingOverride: String, Codable, CaseIterable {
+    case inherit
+    case keep
+    case afterRead = "after_read"
+}
+
+struct ConversationPrivacySettings: Equatable, Codable {
+    var expirationMode: DisappearingMessageMode
+    var expirationDurationSeconds: Int?
+    var allowForwarding: Bool
+    var allowCopying: Bool
+    var allowSavingAttachments: Bool
+    var version: Int
+
+    static let standard = ConversationPrivacySettings(
+        expirationMode: .off,
+        expirationDurationSeconds: nil,
+        allowForwarding: true,
+        allowCopying: true,
+        allowSavingAttachments: true,
+        version: 1
+    )
 }
 
 struct MessageAttachment: Equatable, Codable {
@@ -69,7 +101,9 @@ struct ChatSummary: Identifiable, Equatable {
     let isMuted: Bool
     let isArchived: Bool
     let isGroup: Bool
+    let isExternal: Bool
     let disappearingAfterSeconds: TimeInterval?
+    let privacySettings: ConversationPrivacySettings
     let draft: ChatDraft?
 
     init(
@@ -84,7 +118,9 @@ struct ChatSummary: Identifiable, Equatable {
         isMuted: Bool,
         isArchived: Bool,
         isGroup: Bool,
+        isExternal: Bool = false,
         disappearingAfterSeconds: TimeInterval? = nil,
+        privacySettings: ConversationPrivacySettings = .standard,
         draft: ChatDraft? = nil
     ) {
         self.id = id
@@ -98,7 +134,9 @@ struct ChatSummary: Identifiable, Equatable {
         self.isMuted = isMuted
         self.isArchived = isArchived
         self.isGroup = isGroup
+        self.isExternal = isExternal
         self.disappearingAfterSeconds = disappearingAfterSeconds
+        self.privacySettings = privacySettings
         self.draft = draft
     }
 }
@@ -120,6 +158,11 @@ struct ChatMessage: Identifiable, Equatable {
     let editedAt: Date?
     let linkPreview: LinkPreview?
     let forwardedCount: Int
+    let expirationMode: DisappearingMessageMode
+    let deletedAt: Date?
+    let deletionReason: String?
+    let isTombstone: Bool
+    let isSystemNotice: Bool
 
     init(
         id: UUID,
@@ -137,7 +180,12 @@ struct ChatMessage: Identifiable, Equatable {
         isStarred: Bool = false,
         editedAt: Date? = nil,
         linkPreview: LinkPreview? = nil,
-        forwardedCount: Int = 0
+        forwardedCount: Int = 0,
+        expirationMode: DisappearingMessageMode = .off,
+        deletedAt: Date? = nil,
+        deletionReason: String? = nil,
+        isTombstone: Bool = false,
+        isSystemNotice: Bool = false
     ) {
         self.id = id
         self.chatID = chatID
@@ -155,6 +203,11 @@ struct ChatMessage: Identifiable, Equatable {
         self.editedAt = editedAt
         self.linkPreview = linkPreview
         self.forwardedCount = forwardedCount
+        self.expirationMode = expirationMode
+        self.deletedAt = deletedAt
+        self.deletionReason = deletionReason
+        self.isTombstone = isTombstone
+        self.isSystemNotice = isSystemNotice
     }
 }
 
@@ -337,26 +390,73 @@ protocol StorageService {
     func deleteCiphertext(messageID: UUID)
 }
 
+struct CommunityTypingEvent: Equatable {
+    let communityId: UUID
+    let userId: String
+    let handle: String
+    let displayName: String
+    let isTyping: Bool
+}
+
+struct CommunityPresenceEvent: Equatable {
+    let communityId: UUID
+    let userId: String
+    let isOnline: Bool
+}
+
+struct CommunityReadEvent: Equatable {
+    let communityId: UUID
+    let messageId: UUID
+    let userId: String
+}
+
 protocol CommunityService {
     func listCommunities() async throws -> [Community]
+    func cachedCommunities() async -> [Community]
+    func fetchPublicCommunities() async throws -> [Community]
+    func searchPublicCommunities(query: String) async throws -> [Community]
+    func cachedJoinedCommunityIDs() async -> Set<UUID>
+    func fetchMyMembershipIDs() async throws -> Set<UUID>
+    func community(named name: String) async throws -> Community?
     func createCommunity(_ community: Community) async throws -> Community
     func updateCommunity(_ community: Community) async throws
     func joinCommunity(id: UUID) async throws
     func leaveCommunity(id: UUID) async throws
+    func deleteCommunity(id: UUID) async throws
+    func updateCommunityVisibility(id: UUID, visibility: CommunityVisibility) async throws
+    func blockUser(communityID: UUID, userID: String) async throws
+    func unblockUser(communityID: UUID, userID: String) async throws
     func listGroups(in communityID: UUID) async throws -> [GroupChat]
     func createGroup(in communityID: UUID, group: GroupChat) async throws -> GroupChat
     func updateGroup(_ group: GroupChat) async throws
     func members(of communityID: UUID) async throws -> [CommunityMember]
     func addMember(communityID: UUID, handle: String, role: GroupRole) async throws -> CommunityMember
     func removeMember(communityID: UUID, memberID: UUID) async throws
+    func fetchMessages(communityId: UUID) async throws -> [CommunityMessage]
+    func fetchMessages(communityId: UUID, since: Date) async throws -> [CommunityMessage]
+    func messages(in communityID: UUID) async throws -> [CommunityMessage]
+    func sendMessage(_ text: String, in communityID: UUID) async throws -> CommunityMessage
+    func sendMessage(_ text: String, in communityID: UUID, clientMessageId: UUID) async throws -> CommunityMessage
+    func sendVoiceMessage(_ data: Data, in communityID: UUID, clientMessageId: UUID, disappearing: MessageDisappearingOverride) async throws -> CommunityMessage
+    func subscribeToCommunityDiscovery() -> AsyncThrowingStream<Community, Error>
+    func subscribeToCommunityMessages(communityId: UUID) -> AsyncThrowingStream<CommunityMessage, Error>
+    func subscribeToCommunityRealtimeState() -> AsyncStream<CommunityRealtimeConnectionState>
+    func subscribeToCommunityTyping(communityId: UUID) -> AsyncStream<CommunityTypingEvent>
+    func sendCommunityTyping(communityId: UUID, isTyping: Bool)
+    func subscribeToCommunityPresence(communityId: UUID) -> AsyncStream<CommunityPresenceEvent>
+    func subscribeToCommunityReads(communityId: UUID) -> AsyncStream<CommunityReadEvent>
+    func markCommunityMessageRead(communityId: UUID, messageId: UUID)
 }
 
 @MainActor
 protocol CallService {
     func startCall(chatID: UUID, type: CallType) async throws -> CallSession
+    func adoptOutgoingCall(sessionID: UUID, chatID: UUID, type: CallType) async throws -> CallSession
     func answerCall(sessionID: UUID) async throws
+    func answerIncomingCall(sessionID: UUID, source: CallAnswerSource) async throws
     func declineCall(sessionID: UUID) async throws
     func endCall(sessionID: UUID) async throws
+    func endCall(sessionID: UUID, reason: CallEndReason, source: CallEndSource) async throws
     func toggleMute(sessionID: UUID, isMuted: Bool) async throws
     func toggleSpeaker(sessionID: UUID, isOn: Bool) async throws
     func toggleCamera(sessionID: UUID, isOn: Bool) async throws
@@ -374,17 +474,68 @@ protocol CallService {
 }
 
 extension CallService {
+    func adoptOutgoingCall(sessionID: UUID, chatID: UUID, type: CallType) async throws -> CallSession {
+        try await startCall(chatID: chatID, type: type)
+    }
+}
+
+extension CallService {
+    func answerIncomingCall(sessionID: UUID, source: CallAnswerSource) async throws {
+        try await answerCall(sessionID: sessionID)
+    }
+
+    func endCall(sessionID: UUID, reason: CallEndReason, source: CallEndSource) async throws {
+        try await endCall(sessionID: sessionID)
+    }
+
     func prepareIncomingCall(callID: UUID, callerID: String, hasVideo: Bool, roomName: String?) {}
     func cancelPendingIncomingCall(callID: UUID) {}
+}
+
+enum CallAnswerSource: String, Codable, CaseIterable, Sendable {
+    case callKit
+    case inApp
+    case notificationAction
+    case deepLink
+}
+
+enum CallEndReason: String, Codable, CaseIterable, Sendable {
+    case localHangup
+    case remoteHangup
+    case declined
+    case cancelled
+    case failed
+    case timeout
+    case networkFailure
+}
+
+enum CallEndSource: String, Codable, CaseIterable, Sendable {
+    case inCallButton
+    case callKit
+    case notificationAction
+    case backendEvent
+    case remoteBackendEvent
+    case backendReconciliation
+    case systemInterruption
 }
 
 @MainActor
 protocol BusinessService {
     func listStorefronts() async throws -> [Storefront]
+    func listMarketplaceStorefronts() async throws -> [Storefront]
     func createStorefront(name: String, category: String, tagline: String?) async throws -> Storefront
-    func save(storefront: Storefront) async throws
-    func publish(storefrontID: UUID, isPublished: Bool) async throws
+    func save(storefront: Storefront) async throws -> Storefront
+    func publish(storefrontID: UUID, isPublished: Bool) async throws -> Storefront
     func delete(storefrontID: UUID) async throws
+    func listListings(storefrontID: UUID) async throws -> [ProductOrService]
+    func createListing(storefrontID: UUID, product: ProductOrService) async throws -> ProductOrService
+    func updateListing(storefrontID: UUID, product: ProductOrService) async throws -> ProductOrService
+    func deleteListing(storefrontID: UUID, productID: UUID) async throws
+    func fetchPolicies(storefrontID: UUID) async throws -> StorePolicyDraft
+    func savePolicies(storefrontID: UUID, policy: StorePolicyDraft) async throws -> StorePolicyDraft
+    func uploadStorefrontImage(data: Data, fileName: String, mimeType: String) async throws -> URL
+    func uploadProductImage(productID: UUID, data: Data, fileName: String, mimeType: String) async throws -> ProductOrService
+    func checkStorefrontHandleAvailability(handle: String, excluding storefrontID: UUID?) async throws -> StorefrontHandleAvailability
 }
 
 @MainActor
@@ -395,6 +546,7 @@ protocol AIStorefrontService {
     /// Implementations should be non-destructive by default (merge/append),
     /// unless the user explicitly requests a full overwrite.
     func improve(storefrontID: UUID, prompt: String) async throws -> AIStorefrontResult
+    func storefrontHelp(type: StorefrontAIHelpType, context: StorefrontAIHelpContext) async throws -> String
 }
 
 extension AIStorefrontService {
@@ -404,6 +556,10 @@ extension AIStorefrontService {
             code: -1,
             userInfo: [NSLocalizedDescriptionKey: "Improve is not supported by this AI service."]
         )
+    }
+
+    func storefrontHelp(type: StorefrontAIHelpType, context: StorefrontAIHelpContext) async throws -> String {
+        StorefrontAIFallback.text(for: type, context: context)
     }
 }
 
@@ -441,17 +597,27 @@ struct BusinessProfile: Identifiable, Equatable, Codable {
     let id: UUID
     let ownerID: UUID
     var name: String
+    var handle: String?
     var category: String
     var tagline: String
     var description: String
     var logoURL: URL?
     var coverImageURL: URL?
+    var announcement: String?
+    var sellerStory: String?
     var contactEmail: String?
     var phone: String?
     var website: String?
     var socialLinks: [String: URL]
     var address: String?
     var hours: String?
+    var pickupEnabled: Bool? = nil
+    var localDeliveryEnabled: Bool? = nil
+    var shippingEnabled: Bool? = nil
+    var digitalDeliveryEnabled: Bool? = nil
+    var pickupInstructions: String? = nil
+    var shippingNote: String? = nil
+    var deliveryAreaNote: String? = nil
     var products: [ProductOrService]
     var theme: StorefrontTheme
     var layout: StorefrontLayout
@@ -466,6 +632,17 @@ struct Storefront: Identifiable, Equatable, Codable {
     var theme: StorefrontTheme
     var layout: StorefrontLayout
     var slug: String
+    var shopURL: String?
+    var paymentStatus: String?
+    var paymentsReady: Bool
+    var paymentsEnabled: Bool = false
+    var stripeConnectStatus: String? = nil
+    var defaultPaymentMode: String? = nil
+    var defaultPaymentLinkURL: URL? = nil
+    var policiesReady: Bool
+    var setupComplete: Bool
+    var publishChecklist: [String]
+    var policy: StorePolicyDraft?
     var isPublished: Bool
     var publishedState: StorefrontPublishedState
 }
@@ -539,17 +716,89 @@ struct ProductOrService: Identifiable, Equatable, Codable {
     var name: String
     var description: String
     var price: String
+    var priceCents: Int?
     var isSubscription: Bool
     var mediaURL: URL?
+    var inventory: Int?
+    var trackInventory: Bool?
+    var lowStockThreshold: Int?
+    var paymentMode: String?
+    var paymentLinkURL: URL?
+    var isVisible: Bool?
+    var category: String?
+    var tags: [String]
+    var variants: [String]
+    var shippingInfo: String?
+    var returnEligible: Bool?
 
-    init(id: UUID = UUID(), name: String, description: String, price: String, isSubscription: Bool = false, mediaURL: URL? = nil) {
+    init(
+        id: UUID = UUID(),
+        name: String,
+        description: String,
+        price: String,
+        priceCents: Int? = nil,
+        isSubscription: Bool = false,
+        mediaURL: URL? = nil,
+        inventory: Int? = nil,
+        trackInventory: Bool? = nil,
+        lowStockThreshold: Int? = nil,
+        paymentMode: String? = nil,
+        paymentLinkURL: URL? = nil,
+        isVisible: Bool? = nil,
+        category: String? = nil,
+        tags: [String] = [],
+        variants: [String] = [],
+        shippingInfo: String? = nil,
+        returnEligible: Bool? = nil
+    ) {
         self.id = id
         self.name = name
         self.description = description
         self.price = price
+        self.priceCents = priceCents
         self.isSubscription = isSubscription
         self.mediaURL = mediaURL
+        self.inventory = inventory
+        self.trackInventory = trackInventory
+        self.lowStockThreshold = lowStockThreshold
+        self.paymentMode = paymentMode
+        self.paymentLinkURL = paymentLinkURL
+        self.isVisible = isVisible
+        self.category = category
+        self.tags = tags
+        self.variants = variants
+        self.shippingInfo = shippingInfo
+        self.returnEligible = returnEligible
     }
+
+    var tracksStock: Bool {
+        trackInventory ?? (inventory != nil)
+    }
+
+    var isSoldOut: Bool {
+        tracksStock && (inventory ?? 0) <= 0
+    }
+
+    var isLowStock: Bool {
+        guard tracksStock, let inventory else { return false }
+        return inventory > 0 && inventory <= (lowStockThreshold ?? 3)
+    }
+}
+
+struct StorePolicyDraft: Equatable, Codable {
+    var returns: String
+    var refunds: String
+    var processingTime: String
+    var shipping: String
+    var support: String
+
+    static let `default` = StorePolicyDraft(
+        returns: "Returns accepted within 14 days for eligible items.",
+        refunds: "Refunds are processed after returned items are approved.",
+        processingTime: "Ships within 3-5 business days.",
+        shipping: "Shipping rates are defined by the seller at checkout.",
+        support: "Message the seller in OneWay for support."
+    )
 }
 
 struct AIStorefrontRequest: Equatable, Codable {
@@ -589,12 +838,82 @@ struct AIStorefrontResult: Equatable, Codable {
     let generatedCopy: [StorefrontSectionType: String]
 }
 
+enum StorefrontAIHelpType: String, Codable {
+    case shopName
+    case shopDescription
+    case sellerStory
+    case category
+    case productCopy
+    case storePolicies
+}
+
+struct StorefrontAIHelpContext: Equatable, Codable {
+    var shopName: String
+    var category: String
+    var sellerStory: String
+    var shopDescription: String
+    var productName: String
+    var productDescription: String
+}
+
+enum StorefrontAIFallback {
+    static func text(for type: StorefrontAIHelpType, context: StorefrontAIHelpContext) -> String {
+        let shopName = context.shopName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let category = context.category.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sellerStory = context.sellerStory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let shopDescription = context.shopDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        let productName = context.productName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let productDescription = context.productDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch type {
+        case .shopName:
+            if !shopName.isEmpty { return shopName }
+            if !category.isEmpty { return "\(category) Studio" }
+            return "OneWay Shop"
+        case .shopDescription:
+            return shopDescription.isEmpty
+                ? "Welcome to my OneWay shop. Discover products selected with care, clear details, and fast support."
+                : "Welcome to \(shopName.isEmpty ? "our shop" : shopName). \(shopDescription)"
+        case .sellerStory:
+            if !sellerStory.isEmpty { return sellerStory }
+            return "I started this shop to share carefully chosen products, clear communication, and dependable support with every buyer."
+        case .category:
+            return category.isEmpty ? "Lifestyle" : category
+        case .productCopy:
+            if !productName.isEmpty {
+                return "\(productName) is selected for quality, practical value, and a smooth buying experience on OneWay."
+            }
+            if !productDescription.isEmpty { return productDescription }
+            return "Thoughtfully chosen product with clear details, dependable quality, and responsive support."
+        case .storePolicies:
+            return "We process orders quickly, share clear shipping updates, accept eligible returns, and reply fast when buyers need help."
+        }
+    }
+}
+
 // MARK: Storefront draft/publish + AI suggestions
 
 struct StorefrontDraft: Identifiable, Equatable, Codable {
     let id: UUID
     var storefront: Storefront
     var lastEditedAt: Date
+}
+
+enum StorefrontHandleAvailabilityStatus: String, Codable, Equatable {
+    case idle
+    case checking
+    case available
+    case taken
+    case invalid
+    case unknown
+}
+
+struct StorefrontHandleAvailability: Equatable, Codable {
+    var handle: String
+    var status: StorefrontHandleAvailabilityStatus
+    var message: String
+
+    var isAvailable: Bool { status == .available }
 }
 
 enum StorefrontPublishedState: String, Codable, Equatable {
@@ -628,7 +947,7 @@ enum AIStoreAction: String, Codable, Equatable {
     case ctaImprove
 }
 
-struct SellerStudioSection: Identifiable, Equatable {
+struct ShopManagementSection: Identifiable, Equatable {
     let id: UUID
     let title: String
     let type: StorefrontSectionType

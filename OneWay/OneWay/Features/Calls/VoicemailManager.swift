@@ -151,6 +151,18 @@ final class VoicemailManager: ObservableObject {
         try data.write(to: tmp, options: .atomic)
         let player = try AVAudioPlayer(contentsOf: tmp)
         player.prepareToPlay()
+        SoundDiagnostics.logAudioPlayRequest(
+            filename: tmp.lastPathComponent,
+            soundID: entry.id,
+            systemSoundID: nil,
+            avAudioPlayerURL: tmp.absoluteString,
+            avPlayerURL: nil,
+            category: .mediaPlayback,
+            callId: UUID(uuidString: entry.callId),
+            sourceFile: #fileID,
+            sourceFunction: #function,
+            line: #line
+        )
         player.play()
         self.player = player
 

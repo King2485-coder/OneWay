@@ -25,7 +25,7 @@ import { randomUUID } from "crypto";
 import type { ICallRegistry } from "./CallRegistry";
 import { isTerminal } from "./CallRegistry";
 import type { CallSession, CallStatus } from "../types/calls";
-import { sanitizeRoomName } from "../types/calls";
+import { sameUserId, sanitizeRoomName } from "../types/calls";
 import type { RedisClientLike } from "../lib/redis";
 import { logger } from "../lib/logger";
 
@@ -55,16 +55,24 @@ export class RedisCallRegistry extends EventEmitter implements ICallRegistry {
 
   createCall(args: { callerId: string; calleeId: string; hasVideo: boolean; turnEnabled: boolean }): CallSession {
     const callId = randomUUID();
-    const roomName = sanitizeRoomName(`${args.callerId}-${args.calleeId}-${callId.slice(0, 8)}`);
+    const roomName = sanitizeRoomName(`ow-call-${callId}`);
     const now = Date.now();
     const call: CallSession = {
       callId,
+      id: callId,
       roomName,
       callerId: args.callerId,
       calleeId: args.calleeId,
+      callerUserId: args.callerId,
+      recipientUserId: args.calleeId,
+      type: args.hasVideo ? "video" : "audio",
       status: "ringing",
       hasVideo: args.hasVideo,
+      callerIdentity: `oneway-user-${args.callerId.toLowerCase()}`,
+      recipientIdentity: `oneway-user-${args.calleeId.toLowerCase()}`,
       createdAt: now,
+      updatedAt: now,
+      version: 1,
       turnEnabled: args.turnEnabled,
       participants: [],
     };
@@ -77,7 +85,7 @@ export class RedisCallRegistry extends EventEmitter implements ICallRegistry {
     // Local cache first; routes can `await` an explicit refresh if they
     // need strict consistency, but for typical access patterns the cache
     // suffices because pub/sub keeps it warm.
-    return this.cache.get(callId);
+    return this.cache.get(normalizeCallId(callId));
   }
 
   findByRoom(roomName: string): CallSession | undefined {
@@ -90,7 +98,25 @@ export class RedisCallRegistry extends EventEmitter implements ICallRegistry {
     const out: CallSession[] = [];
     for (const call of this.cache.values()) {
       if (isTerminal(call.status)) continue;
-      if (call.callerId === userId || call.calleeId === userId || call.participants.includes(userId)) {
+      if (
+        sameUserId(call.callerId, userId) ||
+        sameUserId(call.calleeId, userId) ||
+        call.participants.some((participant) => sameUserId(participant, userId))
+      ) {
+        out.push(call);
+      }
+    }
+    return out;
+  }
+
+  callsForUser(userId: string): CallSession[] {
+    const out: CallSession[] = [];
+    for (const call of this.cache.values()) {
+      if (
+        sameUserId(call.callerId, userId) ||
+        sameUserId(call.calleeId, userId) ||
+        call.participants.some((participant) => sameUserId(participant, userId))
+      ) {
         out.push(call);
       }
     }
@@ -98,28 +124,37 @@ export class RedisCallRegistry extends EventEmitter implements ICallRegistry {
   }
 
   updateStatus(callId: string, status: CallStatus, mutator?: (call: CallSession) => void): CallSession {
-    const existing = this.cache.get(callId);
+    const normalizedCallId = normalizeCallId(callId);
+    const existing = this.cache.get(normalizedCallId);
     if (!existing) throw new RegistryNotFound("not_found", "call not found");
     if (isTerminal(existing.status) && status !== existing.status) {
       throw new RegistryNotFound("already_terminal", `call already ${existing.status}`);
     }
     existing.status = status;
+    existing.updatedAt = Date.now();
+    existing.version = (existing.version ?? 1) + 1;
     if (status === "accepted" && existing.acceptedAt === undefined) existing.acceptedAt = Date.now();
+    if (status === "accepting" && existing.recipientAcceptedAt === undefined) {
+      existing.acceptedAt = existing.acceptedAt ?? Date.now();
+      existing.recipientAcceptedAt = Date.now();
+    }
+    if (status === "connected" && existing.connectedAt === undefined) existing.connectedAt = Date.now();
     if (isTerminal(status) && existing.endedAt === undefined) existing.endedAt = Date.now();
     mutator?.(existing);
     void this.persist(existing, false);
     if (isTerminal(status)) {
-      this.disarm(callId);
+      this.disarm(normalizedCallId);
       // Evict shortly after termination so late polls still see it.
-      setTimeout(() => void this.removeCall(callId), 30_000).unref();
+      setTimeout(() => void this.removeCall(normalizedCallId), 30_000).unref();
     }
     return existing;
   }
 
   addParticipant(callId: string, userId: string): CallSession {
-    const existing = this.cache.get(callId);
+    const normalizedCallId = normalizeCallId(callId);
+    const existing = this.cache.get(normalizedCallId);
     if (!existing) throw new RegistryNotFound("not_found", "call not found");
-    if (!existing.participants.includes(userId)) {
+    if (!existing.participants.some((participant) => sameUserId(participant, userId))) {
       existing.participants.push(userId);
       void this.persist(existing, false);
     }
@@ -127,13 +162,15 @@ export class RedisCallRegistry extends EventEmitter implements ICallRegistry {
   }
 
   removeCall(callId: string): void {
-    void this.delete(callId);
+    void this.delete(normalizeCallId(callId));
   }
 
   // ---- Internals -------------------------------------------------------
 
   private async persist(call: CallSession, isNew: boolean): Promise<void> {
     const body = JSON.stringify(call);
+    this.cache.set(call.callId, call);
+    this.byRoomCache.set(call.roomName, call.callId);
     try {
       await this.client.set(`call:${call.callId}`, body, "EX", TTL_SECONDS);
       await this.client.sadd(`user:${call.callerId}:calls`, call.callId);
@@ -147,8 +184,6 @@ export class RedisCallRegistry extends EventEmitter implements ICallRegistry {
       if (isNew && call.status === "ringing") {
         await this.client.set(`ringing:${call.callId}`, "1", "EX", RINGING_TTL_SECONDS);
       }
-      this.cache.set(call.callId, call);
-      this.byRoomCache.set(call.roomName, call.callId);
       await this.client.publish(CHANGED_CHANNEL, body);
       this.emit("call:changed", call);
     } catch (err) {
@@ -177,14 +212,15 @@ export class RedisCallRegistry extends EventEmitter implements ICallRegistry {
   }
 
   private armRingTimeout(callId: string): void {
+    const normalizedCallId = normalizeCallId(callId);
     const timer = setTimeout(() => {
-      const call = this.cache.get(callId);
+      const call = this.cache.get(normalizedCallId);
       if (!call || call.status !== "ringing") return;
-      try { this.updateStatus(callId, "missed"); }
+      try { this.updateStatus(normalizedCallId, "missed"); }
       catch { /* terminal — ignore */ }
     }, RedisCallRegistry.RING_TIMEOUT_MS);
     timer.unref();
-    this.ringTimers.set(callId, timer);
+    this.ringTimers.set(normalizedCallId, timer);
   }
 
   private disarm(callId: string): void {
@@ -222,4 +258,8 @@ class RegistryNotFound extends Error {
     super(message);
     this.name = "RegistryError";
   }
+}
+
+function normalizeCallId(callId: string): string {
+  return callId.toLowerCase();
 }

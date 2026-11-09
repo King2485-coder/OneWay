@@ -1,5 +1,10 @@
 import SwiftUI
 
+private enum ImportedClonePalette {
+    static let textPrimary = Color.white.opacity(0.95)
+    static let textSecondary = Color.white.opacity(0.65)
+}
+
 struct ImportedClonePagesView: View {
     enum Destination: Hashable {
         case onboarding
@@ -31,7 +36,6 @@ struct ImportedClonePagesView: View {
 
     private let messagingService: MessagingService
     private let friendService: FriendService
-    private let storyService: StoryService
     private let groupService: GroupService
     private let contactImportService: ContactImportService
     private let importedContactsStore: ImportedContactsStore
@@ -46,7 +50,6 @@ struct ImportedClonePagesView: View {
     init(
         messagingService: MessagingService,
         friendService: FriendService,
-        storyService: StoryService,
         groupService: GroupService,
         contactImportService: ContactImportService,
         importedContactsStore: ImportedContactsStore,
@@ -60,7 +63,6 @@ struct ImportedClonePagesView: View {
     ) {
         self.messagingService = messagingService
         self.friendService = friendService
-        self.storyService = storyService
         self.groupService = groupService
         self.contactImportService = contactImportService
         self.importedContactsStore = importedContactsStore
@@ -109,7 +111,7 @@ struct ImportedClonePagesView: View {
                         .font(.headline)
                     Text("/Users/king/Documents/OneWay/Reference/WhatsAppClone-main")
                         .font(.footnote)
-                        .foregroundStyle(Theme.textSecondary)
+                        .foregroundStyle(ImportedClonePalette.textSecondary)
                         .textSelection(.enabled)
                 }
                 .padding(.vertical, 4)
@@ -121,17 +123,17 @@ struct ImportedClonePagesView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(title(for: destination))
-                                    .foregroundStyle(Theme.textPrimary)
+                                    .foregroundStyle(ImportedClonePalette.textPrimary)
                                 Text(sourcePath(for: destination))
                                     .font(.caption)
-                                    .foregroundStyle(Theme.textSecondary)
+                                    .foregroundStyle(ImportedClonePalette.textSecondary)
                                     .lineLimit(1)
                             }
 
                             Spacer()
 
-                            Image(systemName: "link")
-                                .foregroundStyle(Theme.textSecondary)
+                            OneWayResolvedIcon(systemName: "link")
+                                .foregroundStyle(ImportedClonePalette.textSecondary)
                         }
                     }
                 }
@@ -216,12 +218,10 @@ struct ImportedClonePagesView: View {
         case .signup:
             CloneAuthFlowView(startAt: .signup, authService: authService)
         case .chats:
-            ChatsListView(
-                messagingService: messagingService,
-                friendService: friendService,
-                storyService: storyService,
-                groupService: groupService,
-                callService: callService
+            CloneInfoPageView(
+                title: "ChatsScreen",
+                sourcePath: sourcePath(for: .chats),
+                notes: "Use the main Chats tab for the full OneWay chats experience."
             )
         case .chat:
             CloneChatScreenView(
@@ -231,16 +231,16 @@ struct ImportedClonePagesView: View {
                 callService: callService
             )
         case .calls:
-            PhoneRootView(
-                friendService: friendService,
-                contactImportService: contactImportService,
-                importedContactsStore: importedContactsStore,
-                callService: callService
+            CloneInfoPageView(
+                title: "CallsScreen",
+                sourcePath: sourcePath(for: .calls),
+                notes: "Use the main Calls tab for the full OneWay phone experience."
             )
         case .status:
-            UpdatesView(
-                storyService: storyService,
-                safetyService: StubSafetyService()
+            CloneInfoPageView(
+                title: "StatusScreen",
+                sourcePath: sourcePath(for: .status),
+                notes: "Status is available through the main app updates flow."
             )
         case .communities:
             CommunitiesView(
@@ -300,7 +300,7 @@ private struct CloneInfoPageView: View {
 
             Section("Status") {
                 Text(notes)
-                    .foregroundStyle(Theme.textSecondary)
+                    .foregroundStyle(ImportedClonePalette.textSecondary)
             }
         }
         .navigationTitle(title)
@@ -315,7 +315,7 @@ private struct SettingsBridgeView: View {
         List {
             Section("Connected") {
                 Text("Use the main app Settings tab for the full OneWay settings experience.")
-                    .foregroundStyle(Theme.textSecondary)
+                    .foregroundStyle(ImportedClonePalette.textSecondary)
             }
         }
         .navigationTitle("SettingsScreen")

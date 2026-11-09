@@ -40,21 +40,25 @@ actor NetworkCallSignalingClient: CallSignalingClient {
     }
 
     /// - Parameters:
-    ///   - baseURL: API base, e.g. `https://api.onewayapp.com`. Used for both
-    ///     REST and to derive the WebSocket URL by swapping `http(s)` -> `ws(s)`.
+    ///   - baseURL: API base, e.g. `https://api.oneway.is`. Used for REST calls.
+    ///   - webSocketURL: optional explicit signaling URL when WebSocket traffic
+    ///     is hosted on a different public origin than the REST API.
     ///   - userID: the local user's id. Sent as `Bearer dev:<id>` until real
     ///     auth is in.
     ///   - session: injectable for tests.
     init(baseURL: URL,
+         webSocketURL: URL? = nil,
          userID: String,
          session: URLSession = .signalingDefault) {
         self.baseURL = baseURL
+        self.webSocketURL = webSocketURL
         self.userID = userID
         self.session = session
         let (stream, continuation) = AsyncStream<SignalingEvent>.makeStream(bufferingPolicy: .bufferingNewest(64))
         self.incomingStream = stream
         self.eventContinuation = continuation
         Task { [weak self] in await self?.observeAppLifecycle() }
+        Task { [weak self] in await self?.observeAuthChanges() }
     }
 
     // Listen for foreground/background transitions and force a fresh
@@ -89,6 +93,28 @@ actor NetworkCallSignalingClient: CallSignalingClient {
         connectWebSocket()
     }
 
+    private func observeAuthChanges() async {
+        for await _ in NotificationCenter.default.notifications(named: AuthTokenStore.tokenDidChangeNotification) {
+            handleAuthChanged()
+        }
+    }
+
+    private func handleAuthChanged() {
+        authRejectedCount = 0
+        attempt = 0
+        guard isStarted else {
+            ensureWebSocketStarted()
+            return
+        }
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        receiveTask?.cancel()
+        receiveTask = nil
+        webSocket?.cancel(with: .goingAway, reason: nil)
+        webSocket = nil
+        connectWebSocket()
+    }
+
     // CallSignalingClient — REST surface ---------------------------------
 
     nonisolated var incomingEvents: AsyncStream<SignalingEvent> { incomingStream }
@@ -96,21 +122,64 @@ actor NetworkCallSignalingClient: CallSignalingClient {
     func invite(chatID: UUID, callID: UUID, type: CallType) async throws -> CallCredentials {
         ensureWebSocketStarted()
         let body: [String: Any] = [
-            "calleeId": chatID.uuidString,
-            "hasVideo": type == .video
+            "recipientUserId": chatID.uuidString,
+            "type": type == .video ? "video" : "audio"
         ]
-        let envelope: CallEnvelope = try await postJSON("/api/calls/invite", body: body)
-        // Mint our own LiveKit token for the freshly-created room. We do
-        // this here so a successful invite always returns *connect-ready*
-        // credentials, matching the existing `CallSignalingClient` contract.
-        return try await mintToken(roomName: envelope.call.roomName)
+        let envelope: CallEnvelope = try await postJSON(CallAPIPath.create, body: body)
+        // Join through the authoritative call session. The backend owns the
+        // room name and issues the media token for both caller and recipient.
+        return try await join(callID: envelope.call.id)
     }
 
     func accept(callID: UUID) async throws -> CallCredentials {
         ensureWebSocketStarted()
-        let body: [String: Any] = ["callId": callID.uuidString]
-        let envelope: CallEnvelope = try await postJSON("/api/calls/accept", body: body)
-        return try await mintToken(roomName: envelope.call.roomName)
+        #if DEBUG
+        print("📞 OneWay signaling accept request:", PrivacyLog.shortID(callID.uuidString))
+        #endif
+        let envelope: CallEnvelope = try await postJSON(CallAPIPath.accept(callID), body: [:])
+        #if DEBUG
+        logVideoCallTimeline(
+            "video.call.accepted.backend",
+            call: envelope.call,
+            roomName: envelope.call.roomName,
+            participantIdentity: envelope.participantIdentity
+        )
+        #endif
+        let credentials = try await join(callID: envelope.call.id)
+        #if DEBUG
+        logVideoCallTimeline(
+            "video.call.token.received",
+            call: envelope.call,
+            roomName: envelope.call.roomName,
+            participantIdentity: credentials.participantIdentity
+        )
+        #endif
+        return credentials
+    }
+
+    func join(callID: UUID) async throws -> CallCredentials {
+        ensureWebSocketStarted()
+        let envelope: CallEnvelope = try await postJSON(CallAPIPath.join(callID), body: [:])
+        #if DEBUG
+        logVideoCallTimeline(
+            "video.call.join.token.received",
+            call: envelope.call,
+            roomName: envelope.call.roomName,
+            participantIdentity: envelope.participantIdentity
+        )
+        #endif
+        guard let credentials = try credentialsFromAcceptEnvelope(envelope) else {
+            return try await mintToken(roomName: envelope.call.roomName, callID: envelope.call.id)
+        }
+        return credentials
+    }
+
+    func mediaReady(callID: UUID, audioPublished: Bool, videoPublished: Bool) async throws {
+        let body: [String: Any] = [
+            "audioPublished": audioPublished,
+            "videoPublished": videoPublished
+        ]
+        let _: CallEnvelope = try await postJSON(CallAPIPath.mediaReady(callID), body: body)
     }
 
     func decline(callID: UUID) async throws {
@@ -119,8 +188,22 @@ actor NetworkCallSignalingClient: CallSignalingClient {
     }
 
     func hangup(callID: UUID) async throws {
-        let body: [String: Any] = ["callId": callID.uuidString]
-        let _: CallEnvelope = try await postJSON("/api/calls/hangup", body: body)
+        try await hangup(callID: callID, reason: .localHangup, source: .inCallButton, operationID: UUID())
+    }
+
+    func hangup(callID: UUID, reason: CallEndReason, source: CallEndSource, operationID: UUID) async throws {
+        let body: [String: Any] = [
+            "reason": reason.rawValue,
+            "source": source.rawValue,
+            "endedByUserId": userID,
+            "clientOperationId": operationID.uuidString
+        ]
+        let _: CallEnvelope = try await postJSON(CallAPIPath.end(callID), body: body)
+    }
+
+    func fetchSnapshot(callID: UUID) async throws -> CallSignalingSnapshot {
+        let envelope: CallEnvelope = try await getJSON(CallAPIPath.get(callID))
+        return envelope.call.signalingSnapshot
     }
 
     // MARK: - WebRTC signalling relay (encrypted payload)
@@ -161,12 +244,12 @@ actor NetworkCallSignalingClient: CallSignalingClient {
     // Lifecycle ----------------------------------------------------------
 
     /// Open the WS up-front (e.g. on app foreground). Idempotent.
-    func start() {
+    func start() async {
         ensureWebSocketStarted()
     }
 
     /// Close the WS and any pending reconnect. Used on sign-out.
-    func stop() {
+    func stop() async {
         reconnectTask?.cancel()
         reconnectTask = nil
         receiveTask?.cancel()
@@ -190,6 +273,13 @@ actor NetworkCallSignalingClient: CallSignalingClient {
     private var reconnectTask: Task<Void, Never>?
     private var isStarted = false
     private var attempt = 0
+    private var authRejectedCount = 0
+    private let maxAuthRejectedReconnects = 3
+    private let webSocketURL: URL?
+#if DEBUG
+    private var useDebugLANWebSocketFallback = false
+    private var debugLANWebSocketFallbackIndex = 0
+#endif
 
     // MARK: - REST plumbing
 
@@ -201,7 +291,10 @@ actor NetworkCallSignalingClient: CallSignalingClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue(AuthTokenStore.shared.authorizationHeader(), forHTTPHeaderField: "Authorization")
+        guard let authorization = authorizationHeader(forPath: path) else {
+            throw Failure.missingAuth
+        }
+        request.setValue(authorization, forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let data: Data
@@ -218,6 +311,10 @@ actor NetworkCallSignalingClient: CallSignalingClient {
             // Try to read error code from body.
             let code = try? JSONDecoder.snakeCamel
                 .decode(BackendError.self, from: data).error
+            #if DEBUG
+            let body = String(data: data, encoding: .utf8) ?? ""
+            print("❌ OneWay signaling request failed:", PrivacyLog.redact(path), http.statusCode, code ?? "unknown", PrivacyLog.redact(body))
+            #endif
             throw Failure.http(status: http.statusCode, code: code)
         }
         do {
@@ -227,16 +324,74 @@ actor NetworkCallSignalingClient: CallSignalingClient {
         }
     }
 
-    private func mintToken(roomName: String) async throws -> CallCredentials {
+    private func getJSON<R: Decodable>(_ path: String) async throws -> R {
+        guard let url = makeURL(path: path) else {
+            throw Failure.http(status: -1, code: "bad_url")
+        }
+        var request = URLRequest(url: url, timeoutInterval: 10)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        guard let authorization = authorizationHeader(forPath: path) else {
+            throw Failure.missingAuth
+        }
+        request.setValue(authorization, forHTTPHeaderField: "Authorization")
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw Failure.underlying(error)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw Failure.http(status: -1, code: nil)
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let code = try? JSONDecoder.snakeCamel
+                .decode(BackendError.self, from: data).error
+            throw Failure.http(status: http.statusCode, code: code)
+        }
+        do {
+            return try JSONDecoder.snakeCamel.decode(R.self, from: data)
+        } catch {
+            throw Failure.decoding(error)
+        }
+    }
+
+    private func mintToken(roomName: String, callID: UUID? = nil) async throws -> CallCredentials {
         let body: [String: Any] = [
             "roomName": roomName,
             "identity": userID,
         ]
         let token: TokenResponse = try await postJSON("/api/livekit/token", body: body)
+        #if DEBUG
+        print("📞 OneWay LiveKit token response:", PrivacyLog.shortID(roomName), PrivacyLog.redact(token.url))
+        #endif
         guard let url = URL(string: token.url) else {
             throw Failure.http(status: -1, code: "bad_livekit_url")
         }
-        return CallCredentials(roomURL: url, token: token.token, iceServers: token.iceServers ?? [])
+        return CallCredentials(
+            roomURL: url,
+            token: token.token,
+            iceServers: token.iceServers ?? [],
+            callID: callID,
+            participantIdentity: token.participantIdentity
+        )
+    }
+
+    private func credentialsFromAcceptEnvelope(_ envelope: CallEnvelope) throws -> CallCredentials? {
+        guard let liveKitToken = envelope.liveKitToken,
+              let liveKitUrl = envelope.liveKitUrl,
+              let url = URL(string: liveKitUrl) else {
+            return nil
+        }
+        return CallCredentials(
+            roomURL: url,
+            token: liveKitToken,
+            iceServers: envelope.iceServers ?? [],
+            callID: envelope.call.id,
+            participantIdentity: envelope.participantIdentity
+        )
     }
 
     private func makeURL(path: String) -> URL? {
@@ -249,6 +404,12 @@ actor NetworkCallSignalingClient: CallSignalingClient {
 
     private func ensureWebSocketStarted() {
         guard !isStarted else { return }
+        guard authorizationHeader(forPath: "ws/calls") != nil else {
+            #if DEBUG
+            print("OneWay signaling start deferred; auth token unavailable")
+            #endif
+            return
+        }
         isStarted = true
         connectWebSocket()
     }
@@ -256,9 +417,19 @@ actor NetworkCallSignalingClient: CallSignalingClient {
     private func connectWebSocket() {
         guard let url = makeWebSocketURL() else { return }
         var request = URLRequest(url: url)
-        request.setValue(AuthTokenStore.shared.authorizationHeader(),
-                         forHTTPHeaderField: "Authorization")
+        guard let authorization = authorizationHeader(forPath: "ws/calls") else {
+            #if DEBUG
+            print("OneWay signaling waiting for auth token before WebSocket connect")
+            #endif
+            return
+        }
+        request.setValue(authorization, forHTTPHeaderField: "Authorization")
 
+        #if DEBUG
+        print("OneWay signaling connect caller:", #fileID, #function)
+        print("OneWay signaling WebSocket URL:", redactedWebSocketURL(url))
+        print("OneWay signaling auth header attached:", !authorization.isEmpty)
+        #endif
         let task = session.webSocketTask(with: request)
         webSocket = task
         task.resume()
@@ -273,6 +444,17 @@ actor NetworkCallSignalingClient: CallSignalingClient {
     }
 
     private func makeWebSocketURL() -> URL? {
+#if DEBUG
+        if useDebugLANWebSocketFallback,
+           APIConfig.debugLocalOverrideEnabled,
+           let rawFallbackURL = debugLANWebSocketFallbackURLString(),
+           let fallbackURL = URL(string: rawFallbackURL) {
+            return fallbackURL
+        }
+#endif
+        if let webSocketURL {
+            return webSocketURL
+        }
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             return nil
         }
@@ -282,14 +464,60 @@ actor NetworkCallSignalingClient: CallSignalingClient {
         default: break
         }
         components.path = (components.path.hasSuffix("/") ? components.path : components.path + "/") + "ws/calls"
+        if DevAuth.authorizationHeader(forPath: "ws/calls", baseURL: baseURL) != nil {
+            components.queryItems = [URLQueryItem(name: "token", value: authToken(forPath: "ws/calls"))]
+        }
         return components.url
     }
+
+#if DEBUG
+    private func debugLANWebSocketFallbackURLString() -> String? {
+        let urls = APIConfig.debugLANSignalingWebSocketURLs
+        guard !urls.isEmpty else { return nil }
+        if urls.indices.contains(debugLANWebSocketFallbackIndex) {
+            return urls[debugLANWebSocketFallbackIndex]
+        }
+        return urls.first
+    }
+
+    private func shouldUseDebugLANWebSocketFallback(after error: Error) -> Bool {
+        guard APIConfig.debugLocalOverrideEnabled else {
+            return false
+        }
+
+        guard let url = makeWebSocketURL() else {
+            return false
+        }
+
+        if useDebugLANWebSocketFallback {
+            return debugLANWebSocketFallbackIndex + 1 < APIConfig.debugLANSignalingWebSocketURLs.count
+        }
+
+        guard url.host?.lowercased() == "api.oneway.is" else { return false }
+
+        guard let urlError = error as? URLError else {
+            return true
+        }
+
+        switch urlError.code {
+        case .timedOut,
+             .cannotConnectToHost,
+             .cannotFindHost,
+             .networkConnectionLost,
+             .notConnectedToInternet,
+             .dnsLookupFailed,
+             .secureConnectionFailed:
+            return true
+        default:
+            return false
+        }
+    }
+#endif
 
     private func sendAuth() async {
         // Strip the "Bearer " prefix for the WS handshake — the server
         // expects the raw token in the payload.
-        let header = AuthTokenStore.shared.authorizationHeader()
-        let raw = header.hasPrefix("Bearer ") ? String(header.dropFirst("Bearer ".count)) : header
+        let raw = authToken(forPath: "ws/calls")
         let payload: [String: Any] = [
             "type": "auth",
             "payload": ["token": raw]
@@ -311,6 +539,19 @@ actor NetworkCallSignalingClient: CallSignalingClient {
             } catch {
                 // The socket dropped (network change, backgrounded too long,
                 // server restart). Schedule a reconnect with backoff.
+#if DEBUG
+                if shouldUseDebugLANWebSocketFallback(after: error) {
+                    if useDebugLANWebSocketFallback {
+                        debugLANWebSocketFallbackIndex += 1
+                    } else {
+                        useDebugLANWebSocketFallback = true
+                        debugLANWebSocketFallbackIndex = 0
+                    }
+                    attempt = 0
+                    let fallback = debugLANWebSocketFallbackURLString() ?? "none"
+                    print("OneWay signaling WebSocket failed, retrying LAN fallback:", PrivacyLog.redact(fallback))
+                }
+#endif
                 scheduleReconnect()
                 return
             }
@@ -330,6 +571,19 @@ actor NetworkCallSignalingClient: CallSignalingClient {
         switch decoded.type {
         case "call:ringing":
             if let call = decoded.payload?.call {
+                let currentUserID = AuthTokenStore.shared.currentUserID()
+                guard call.calleeId.caseInsensitiveCompare(currentUserID) == .orderedSame else {
+                    #if DEBUG
+                    print("Ignoring call:ringing not addressed to current user for callId=\(call.id)")
+                    #endif
+                    return
+                }
+                if call.callerId.caseInsensitiveCompare(currentUserID) == .orderedSame {
+                    #if DEBUG
+                    print("Ignoring self-originated call:ringing for callId=\(call.id)")
+                    #endif
+                    return
+                }
                 eventContinuation.yield(.ringing(.init(
                     callID: call.id,
                     callerID: call.callerId,
@@ -339,15 +593,30 @@ actor NetworkCallSignalingClient: CallSignalingClient {
             }
         case "call:accepted":
             if let call = decoded.payload?.call {
-                // Accepted is the moment the *caller* needs credentials. Mint
-                // a token now and emit a fully-formed event.
+                let currentUserID = AuthTokenStore.shared.currentUserID()
+                guard call.callerId.caseInsensitiveCompare(currentUserID) == .orderedSame else {
+                    #if DEBUG
+                    print(
+                        "Ignoring call:accepted not addressed to caller",
+                        "callId=\(PrivacyLog.shortID(call.id.uuidString))",
+                        "currentUser=\(PrivacyLog.shortID(currentUserID))",
+                        "caller=\(PrivacyLog.shortID(call.callerId))"
+                    )
+                    #endif
+                    return
+                }
+                #if DEBUG
+                logVideoCallTimeline("video.call.accepted.event.received", call: call, roomName: call.roomName)
+                #endif
+                // Accepted is the moment the *caller* needs authoritative
+                // join credentials for the stored CallSession room.
                 Task { [weak self] in
                     guard let self else { return }
                     do {
-                        let creds = try await self.mintToken(roomName: call.roomName)
+                        let creds = try await self.join(callID: call.id)
                         await self.emit(.accepted(callID: call.id, credentials: creds))
                     } catch {
-                        await self.emit(.ended(callID: call.id, reason: .failed))
+                        await self.emit(.ended(callID: call.id, reason: .failed, metadata: .empty))
                     }
                 }
             }
@@ -364,10 +633,31 @@ actor NetworkCallSignalingClient: CallSignalingClient {
                     default: return .ended
                     }
                 }()
-                eventContinuation.yield(.ended(callID: call.id, reason: reason))
+                eventContinuation.yield(.ended(
+                    callID: call.id,
+                    reason: reason,
+                    metadata: .init(
+                        endedByUserId: call.endedByUserId,
+                        operationId: call.endOperationIds?.last,
+                        sessionVersion: call.version,
+                        endedAt: call.endedAt
+                    )
+                ))
             }
         case "call:state":
             if let call = decoded.payload?.call {
+                let currentUserID = AuthTokenStore.shared.currentUserID()
+                if call.status == "ringing",
+                   call.calleeId.caseInsensitiveCompare(currentUserID) == .orderedSame,
+                   call.callerId.caseInsensitiveCompare(currentUserID) != .orderedSame {
+                    eventContinuation.yield(.ringing(.init(
+                        callID: call.id,
+                        callerID: call.callerId,
+                        hasVideo: call.hasVideo,
+                        roomName: call.roomName
+                    )))
+                    return
+                }
                 eventContinuation.yield(.state(callID: call.id, status: call.status))
             }
         case "presence:online":
@@ -395,9 +685,16 @@ actor NetworkCallSignalingClient: CallSignalingClient {
             // Server-side error — log via NSLog so it shows up in device logs
             // without a separate logger dependency.
             #if DEBUG
-            print("[Signaling] server error: \(decoded.payload?.message ?? "?")")
+            print("[Signaling] server error: \(PrivacyLog.redact(decoded.payload?.message ?? "?"))")
             #endif
+            if isAuthRejected(decoded.payload) {
+                authRejectedCount += 1
+                if authRejectedCount >= maxAuthRejectedReconnects {
+                    stopReconnectStorm()
+                }
+            }
         default:
+            authRejectedCount = 0
             break
         }
     }
@@ -407,7 +704,9 @@ actor NetworkCallSignalingClient: CallSignalingClient {
     }
 
     private func scheduleReconnect() {
-        guard isStarted, reconnectTask == nil else { return }
+        guard isStarted,
+              reconnectTask == nil,
+              authRejectedCount < maxAuthRejectedReconnects else { return }
         let delay = min(30, pow(2.0, Double(attempt)))
         attempt += 1
         let nanos = UInt64(delay * 1_000_000_000)
@@ -424,12 +723,134 @@ actor NetworkCallSignalingClient: CallSignalingClient {
         webSocket = nil
         connectWebSocket()
     }
+
+    private func authorizationHeader(forPath path: String) -> String? {
+        if let devHeader = DevAuth.authorizationHeader(forPath: path, baseURL: baseURL) {
+            return devHeader
+        }
+        guard let token = AuthTokenStore.shared.token() else {
+            return nil
+        }
+        return "Bearer \(token)"
+    }
+
+    private func authToken(forPath path: String) -> String {
+        guard let header = authorizationHeader(forPath: path) else { return "" }
+        return header.hasPrefix("Bearer ") ? String(header.dropFirst("Bearer ".count)) : header
+    }
+
+    private func isAuthRejected(_ payload: WirePayload?) -> Bool {
+        let code = payload?.code?.lowercased() ?? ""
+        let message = payload?.message?.lowercased() ?? ""
+        return code == "bad_token" || message.contains("auth rejected")
+    }
+
+    private func stopReconnectStorm() {
+        #if DEBUG
+        print("Stopping websocket reconnect storm after auth rejection")
+        #endif
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        receiveTask?.cancel()
+        receiveTask = nil
+        webSocket?.cancel(with: .policyViolation, reason: Data("auth rejected".utf8))
+        webSocket = nil
+        isStarted = false
+    }
+
+    private func redactedWebSocketURL(_ url: URL) -> String {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return PrivacyLog.redact(url.absoluteString)
+        }
+        components.queryItems = components.queryItems?.map { item in
+            if item.name == "token" || item.name == "access_token" {
+                return URLQueryItem(name: item.name, value: "<redacted>")
+            }
+            return item
+        }
+        return PrivacyLog.redact(components.url?.absoluteString ?? url.absoluteString)
+    }
 }
+
+#if DEBUG
+private func logVideoCallTimeline(
+    _ event: String,
+    call: WireCall,
+    roomName: String,
+    participantIdentity: String? = nil,
+    errorCode: String? = nil
+) {
+    guard call.hasVideo else { return }
+    print(
+        "📹 OneWay timeline",
+        "event=\(event)",
+        "callId=\(PrivacyLog.shortID(call.id.uuidString))",
+        "callerUserId=\(PrivacyLog.shortID(call.callerId))",
+        "recipientUserId=\(PrivacyLog.shortID(call.calleeId))",
+        "currentUserId=\(PrivacyLog.shortID(AuthTokenStore.shared.currentUserID()))",
+        "roomName=\(PrivacyLog.shortID(roomName))",
+        "participantIdentity=\(PrivacyLog.shortID(participantIdentity))",
+        "callStatus=\(call.status)",
+        "timestamp=\(ISO8601DateFormatter().string(from: Date()))",
+        "errorCode=\(errorCode ?? "none")"
+    )
+}
+#endif
 
 // MARK: - Wire types
 
+private enum CallAPIPath {
+    static let create = "/api/calls"
+
+    static func get(_ callID: UUID) -> String {
+        "/api/calls/\(callID.uuidString.lowercased())"
+    }
+
+    static func accept(_ callID: UUID) -> String {
+        "/api/calls/\(callID.uuidString.lowercased())/accept"
+    }
+
+    static func join(_ callID: UUID) -> String {
+        "/api/calls/\(callID.uuidString.lowercased())/join"
+    }
+
+    static func mediaReady(_ callID: UUID) -> String {
+        "/api/calls/\(callID.uuidString.lowercased())/media-ready"
+    }
+
+    static func end(_ callID: UUID) -> String {
+        "/api/calls/\(callID.uuidString.lowercased())/end"
+    }
+}
+
 private struct CallEnvelope: Decodable {
     let call: WireCall
+    let liveKitToken: String?
+    let liveKitUrl: String?
+    let roomName: String?
+    let participantIdentity: String?
+    let iceServers: [TurnServerConfiguration]?
+
+    private enum CodingKeys: String, CodingKey {
+        case call
+        case liveKitToken
+        case liveKitUrl
+        case livekitUrl
+        case roomName
+        case participantIdentity
+        case iceServers
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        call = try container.decode(WireCall.self, forKey: .call)
+        liveKitToken = try container.decodeIfPresent(String.self, forKey: .liveKitToken)
+        liveKitUrl = try container.decodeIfPresent(String.self, forKey: .liveKitUrl)
+            ?? container.decodeIfPresent(String.self, forKey: .livekitUrl)
+        roomName = try container.decodeIfPresent(String.self, forKey: .roomName)
+        participantIdentity = try container.decodeIfPresent(String.self, forKey: .participantIdentity)
+        iceServers = try container.decodeIfPresent([TurnServerConfiguration].self, forKey: .iceServers)
+    }
 }
 
 private struct WireCall: Decodable {
@@ -439,13 +860,48 @@ private struct WireCall: Decodable {
     let calleeId: String
     let status: String
     let hasVideo: Bool
+    let version: Int?
+    let endedByUserId: String?
+    let endOperationIds: [String]?
+    let endedAt: String?
 
     enum CodingKeys: String, CodingKey {
         // Matches the JSON `"callId"` field but renamed locally to `id` for
         // ergonomics. The other keys decode straight off the snake-case
         // strategy we install on the decoder.
         case id = "callId"
-        case roomName, callerId, calleeId, status, hasVideo
+        case roomName, callerId, calleeId, status, hasVideo, version, endedByUserId, endOperationIds, endedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        roomName = try container.decode(String.self, forKey: .roomName)
+        callerId = try container.decode(String.self, forKey: .callerId)
+        calleeId = try container.decode(String.self, forKey: .calleeId)
+        status = try container.decode(String.self, forKey: .status)
+        hasVideo = try container.decode(Bool.self, forKey: .hasVideo)
+        version = try container.decodeIfPresent(Int.self, forKey: .version)
+        endedByUserId = try container.decodeIfPresent(String.self, forKey: .endedByUserId)
+        endOperationIds = try container.decodeIfPresent([String].self, forKey: .endOperationIds)
+        if let value = try? container.decodeIfPresent(String.self, forKey: .endedAt) {
+            endedAt = value
+        } else if let value = try? container.decodeIfPresent(Int.self, forKey: .endedAt) {
+            endedAt = ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: TimeInterval(value) / 1000.0))
+        } else {
+            endedAt = nil
+        }
+    }
+
+    var signalingSnapshot: CallSignalingSnapshot {
+        CallSignalingSnapshot(
+            callID: id,
+            status: status,
+            endedByUserId: endedByUserId,
+            operationId: endOperationIds?.last,
+            sessionVersion: version,
+            endedAt: endedAt
+        )
     }
 }
 
@@ -453,7 +909,38 @@ private struct TokenResponse: Decodable {
     let url: String
     let token: String
     let roomName: String
+    let participantIdentity: String?
     let iceServers: [TurnServerConfiguration]?
+
+    private enum CodingKeys: String, CodingKey {
+        case url
+        case liveKitUrl
+        case livekitUrl
+        case token
+        case roomName
+        case participantIdentity
+        case iceServers
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard let resolvedURL = try container.decodeIfPresent(String.self, forKey: .url)
+            ?? container.decodeIfPresent(String.self, forKey: .liveKitUrl)
+            ?? container.decodeIfPresent(String.self, forKey: .livekitUrl) else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.url,
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "LiveKit token response did not include url/liveKitUrl."
+                )
+            )
+        }
+        url = resolvedURL
+        token = try container.decode(String.self, forKey: .token)
+        roomName = try container.decode(String.self, forKey: .roomName)
+        participantIdentity = try container.decodeIfPresent(String.self, forKey: .participantIdentity)
+        iceServers = try container.decodeIfPresent([TurnServerConfiguration].self, forKey: .iceServers)
+    }
 }
 
 private struct BackendError: Decodable {
@@ -500,9 +987,9 @@ extension URLSession {
     /// can stay open), short request timeout for REST calls.
     static let signalingDefault: URLSession = {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 10
+        config.timeoutIntervalForRequest = 5
         config.timeoutIntervalForResource = 60 * 60
-        config.waitsForConnectivity = true
+        config.waitsForConnectivity = false
         config.httpAdditionalHeaders = ["User-Agent": "OneWay/iOS Signaling"]
         return URLSession(configuration: config)
     }()

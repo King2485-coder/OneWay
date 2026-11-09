@@ -111,7 +111,7 @@ struct RegisterDomainView: View {
             Label {
                 Text("\(viewModel.previewDomain) is yours.")
             } icon: {
-                Image(systemName: "checkmark.circle.fill")
+                OneWayResolvedIcon(systemName: "checkmark.circle.fill")
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(Color.green)
@@ -119,7 +119,7 @@ struct RegisterDomainView: View {
             Label {
                 Text("\(viewModel.previewDomain) is already taken.")
             } icon: {
-                Image(systemName: "xmark.octagon.fill")
+                OneWayResolvedIcon(systemName: "xmark.octagon.fill")
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(Color.red.opacity(0.85))
@@ -127,7 +127,7 @@ struct RegisterDomainView: View {
             Label {
                 Text(message)
             } icon: {
-                Image(systemName: "exclamationmark.triangle.fill")
+                OneWayResolvedIcon(systemName: "exclamationmark.triangle.fill")
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(Color.orange)
@@ -165,7 +165,7 @@ struct RegisterDomainView: View {
                 if viewModel.isSubmitting {
                     ProgressView().tint(.white)
                 } else {
-                    Image(systemName: "checkmark.seal.fill")
+                    OneWayResolvedIcon(systemName: "checkmark.seal.fill")
                     Text("Register for $3.99 / year")
                 }
             }

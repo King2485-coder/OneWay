@@ -7,4 +7,5 @@ enum FriendServiceError: Error {
     case unknown
     case invalidHandle
     case invalidInvite
+    case invalidResponse
 }

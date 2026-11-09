@@ -76,7 +76,7 @@ struct OneWayMenuHeader_Previews: PreviewProvider {
                 OneWayMenuHeader(title: "Settings") {
                     Button {
                     } label: {
-                        Image(systemName: "ellipsis")
+                        OneWayResolvedIcon(systemName: "ellipsis")
                             .font(.headline)
                             .foregroundStyle(.white)
                             .frame(width: 36, height: 36)
@@ -85,7 +85,7 @@ struct OneWayMenuHeader_Previews: PreviewProvider {
                 } trailing: {
                     Button {
                     } label: {
-                        Image(systemName: "plus")
+                        OneWayResolvedIcon(systemName: "plus")
                             .font(.headline)
                             .foregroundStyle(.white)
                             .frame(width: 36, height: 36)

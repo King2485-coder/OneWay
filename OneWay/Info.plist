@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>RTCAppGroupIdentifier</key>
+	<string>group.com.king.OneWay.shared.46PM2SB7NF</string>
+	<key>RTCScreenSharingExtension</key>
+	<string>com.king.OneWay.broadcast</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -18,38 +22,49 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>app.oneway</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>oneway</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>NSContactsUsageDescription</key>
-	<string>Used to find and connect with people you know</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Camera is required for video calls.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Used to find and connect with people you know</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>OneWay uses your local network only when you choose to connect to a nearby OneWay service.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Microphone is required for calls.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>OneWay uses your photo library so you can choose photos and videos for chats and stories.</string>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>OneWay uses your local network to connect to your OneWay backend during development.</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
 		<string>voip</string>
 		<string>remote-notification</string>
 	</array>
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
-	<key>UIApplicationSceneManifest</key>
-	<dict>
-		<key>UIApplicationSupportsMultipleScenes</key>
-		<false/>
-	</dict>
 	<key>UILaunchScreen</key>
 	<dict/>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-	</dict>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

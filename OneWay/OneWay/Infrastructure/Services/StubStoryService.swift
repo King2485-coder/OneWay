@@ -6,27 +6,7 @@ actor StubStoryService: StoryService {
     private var friendStories: [StoryItem]
 
     init() {
-        let now = Date()
-        friendStories = [
-            StoryItem(
-                id: UUID(),
-                authorDisplayName: "Alex",
-                caption: "Morning run.",
-                visibility: .friends,
-                createdAt: now.addingTimeInterval(-60 * 25),
-                expiresAt: now.addingTimeInterval(60 * 60 * 18),
-                media: nil
-            ),
-            StoryItem(
-                id: UUID(),
-                authorDisplayName: "Priya",
-                caption: "Coffee + roadmap planning.",
-                visibility: .friends,
-                createdAt: now.addingTimeInterval(-60 * 45),
-                expiresAt: now.addingTimeInterval(60 * 60 * 20),
-                media: nil
-            )
-        ]
+        friendStories = []
     }
 
     func fetchFriendStories() async throws -> [StoryItem] {

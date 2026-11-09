@@ -8,6 +8,8 @@
  *     records method/path/status/latency, and never logs request bodies.
  */
 
+import { redactSensitiveObject, redactSensitiveString } from "./privacy/redaction";
+
 interface LogFn {
   (obj: object, msg?: string): void;
   (msg: string): void;
@@ -41,9 +43,9 @@ function makeFallbackLogger(bindings: Record<string, unknown> = {}): Logger {
   const emit = (level: string, a: object | string, b?: string) => {
     const time = new Date().toISOString();
     if (typeof a === "string") {
-      console.log(JSON.stringify({ level, time, msg: a, ...bindings }));
+      console.log(JSON.stringify(redactSensitiveObject({ level, time, msg: a, ...bindings })));
     } else {
-      console.log(JSON.stringify({ level, time, msg: b, ...bindings, ...a }));
+      console.log(JSON.stringify(redactSensitiveObject({ level, time, msg: b, ...bindings, ...a })));
     }
   };
   return {
@@ -61,24 +63,59 @@ function makeFallbackLogger(bindings: Record<string, unknown> = {}): Logger {
 function buildLogger(): Logger {
   const pino = loadPino();
   if (!pino) return makeFallbackLogger({ app: "oneway-server" });
-  return pino({
+  return wrapLogger(pino({
     level: process.env.LOG_LEVEL ?? (process.env.NODE_ENV === "production" ? "info" : "debug"),
     base: { app: "oneway-server" },
     redact: {
       paths: [
         "req.headers.authorization",
         "req.headers.cookie",
+        "req.headers['authorization']",
+        "req.headers['cookie']",
+        "req.headers['set-cookie']",
+        "*.authorization",
+        "*.Authorization",
+        "*.cookie",
+        "*.apiKey",
+        "*.api_key",
+        "*.secret",
         "*.password",
         "*.passwordHash",
         "*.token",
         "*.voipToken",
+        "*.liveKitToken",
+        "*.authToken",
+        "*.stripeSecretKey",
+        "*.twilioAuthToken",
+        "*.sendgridApiKey",
       ],
       remove: true,
     },
-  });
+  }) as Logger);
 }
 
 export const logger: Logger = buildLogger();
+
+function wrapLogger(base: Logger): Logger {
+  const wrap = (level: keyof Omit<Logger, "child">): LogFn => {
+    return ((a: object | string, b?: string) => {
+      if (typeof a === "string") {
+        base[level](redactSensitiveString(a));
+        return;
+      }
+      base[level](redactSensitiveObject(a), b ? redactSensitiveString(b) : undefined);
+    }) as LogFn;
+  };
+
+  return {
+    fatal: wrap("fatal"),
+    error: wrap("error"),
+    warn: wrap("warn"),
+    info: wrap("info"),
+    debug: wrap("debug"),
+    child: (bindings) => wrapLogger(base.child(redactSensitiveObject(bindings))),
+  };
+}
 
 // ---- Express middleware ---------------------------------------------------
 

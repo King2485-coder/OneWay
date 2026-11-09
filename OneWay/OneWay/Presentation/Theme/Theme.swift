@@ -2,23 +2,23 @@ import SwiftUI
 import Combine
 
 enum Theme {
-    static let backgroundTop = Color(hex: 0x0B0720)
-    static let backgroundMid = Color(hex: 0x1A0B3D)
-    static let backgroundViolet = Color(hex: 0x3B1A73)
-    static let backgroundHighlight = Color(hex: 0x6C3BD6)
+    static let backgroundTop = Color(hex: 0x05040C)
+    static let backgroundMid = Color(hex: 0x0B0816)
+    static let backgroundViolet = Color(hex: 0x120B23)
+    static let backgroundHighlight = Color(hex: 0x7C3DCE)
     static let accentGold = Color(hex: 0xF5C542)
-    static let primaryBlue = Color(hex: 0x2F7BFF)
-    static let accentStart = Color(hex: 0x2F7BFF)
-    static let accentEnd = Color(hex: 0x6C3BD6)
+    static let primaryBlue = Color(hex: 0x9B5CFF)
+    static let accentStart = Color(hex: 0x9B5CFF)
+    static let accentEnd = Color(hex: 0x7C3DCE)
     static let glassSurface = Color.white.opacity(0.08)
     static let divider = Color.white.opacity(0.12)
     static let textPrimary = Color.white.opacity(0.95)
-    static let textSecondary = Color.white.opacity(0.65)
-    static let textMuted = Color.white.opacity(0.5)
+    static let textSecondary = Color(hex: 0xC8C1EA)
+    static let textMuted = Color(hex: 0xA59ABF)
     static let glassShadow = Color.black.opacity(0.25)
 
     static let appBackground = LinearGradient(
-        colors: [backgroundTop, backgroundMid, backgroundViolet, backgroundHighlight.opacity(0.72)],
+        colors: [backgroundTop, backgroundMid, backgroundViolet, backgroundTop],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )

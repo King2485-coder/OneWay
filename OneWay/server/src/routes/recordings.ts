@@ -3,6 +3,7 @@ import { z } from "zod";
 import { EgressClient, EncodedFileOutput, S3Upload } from "livekit-server-sdk";
 
 import { prisma } from "../lib/db";
+import { logger } from "../lib/logger";
 import { authMiddleware } from "../middleware/auth";
 
 const startSchema = z.object({
@@ -94,13 +95,13 @@ export function recordingsRouter(): express.Router {
           egressId: egress.egressId,
           status: "recording",
         },
-      });
+    });
 
-      res.json({ ok: true, egressId: egress.egressId });
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: "recording_start_failed" });
-    }
+    res.json({ ok: true, egressId: egress.egressId });
+  } catch (error) {
+    logger.error({ err: error }, "[recordings] start failed");
+    res.status(500).json({ error: "recording_start_failed" });
+  }
   });
 
   router.post("/stop", async (req, res) => {
@@ -124,7 +125,7 @@ export function recordingsRouter(): express.Router {
       });
       res.json({ ok: true });
     } catch (error) {
-      console.error(error);
+      logger.error({ err: error }, "[recordings] stop failed");
       res.status(500).json({ error: "recording_stop_failed" });
     }
   });

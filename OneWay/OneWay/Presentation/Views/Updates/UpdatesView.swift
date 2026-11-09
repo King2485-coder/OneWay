@@ -132,7 +132,7 @@ struct UpdatesView: View {
                 .fill(Theme.glassSurface)
                 .frame(width: 44, height: 44)
                 .overlay {
-                    Image(systemName: "ellipsis")
+                    OneWayResolvedIcon(systemName: "ellipsis")
                         .font(.headline)
                         .foregroundStyle(Theme.textPrimary)
                 }
@@ -152,7 +152,7 @@ struct UpdatesView: View {
                 .fill(Theme.primaryBlue)
                 .frame(width: 44, height: 44)
                 .overlay {
-                    Image(systemName: "plus")
+                    OneWayResolvedIcon(systemName: "plus")
                         .font(.headline)
                         .foregroundStyle(.white)
                 }
@@ -166,7 +166,7 @@ struct UpdatesView: View {
 
     private var searchBar: some View {
         HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
+            OneWayResolvedIcon(systemName: "magnifyingglass")
                 .foregroundStyle(Theme.textSecondary)
             Text("Search")
                 .foregroundStyle(Theme.textSecondary)
@@ -221,7 +221,7 @@ struct UpdatesView: View {
                                     .fill(Theme.primaryBlue)
                                     .frame(width: 22, height: 22)
                                     .overlay {
-                                        Image(systemName: "plus")
+                                        OneWayResolvedIcon(systemName: "plus")
                                             .font(.caption2.bold())
                                             .foregroundStyle(.white)
                                     }
@@ -245,7 +245,7 @@ struct UpdatesView: View {
                     .fill(Theme.glassSurface)
                     .frame(width: 44, height: 44)
                     .overlay {
-                        Image(systemName: "camera.fill")
+                        OneWayResolvedIcon(systemName: "camera.fill")
                             .font(.headline)
                             .foregroundStyle(Theme.textSecondary)
                     }
@@ -257,7 +257,7 @@ struct UpdatesView: View {
                     .fill(Theme.glassSurface)
                     .frame(width: 44, height: 44)
                     .overlay {
-                        Image(systemName: "pencil")
+                        OneWayResolvedIcon(systemName: "pencil")
                             .font(.headline)
                             .foregroundStyle(Theme.textSecondary)
                     }
@@ -341,7 +341,7 @@ struct UpdatesView: View {
                                 .lineLimit(1)
 
                             if channel.isVerified {
-                                Image(systemName: "checkmark.seal.fill")
+                                OneWayResolvedIcon(systemName: "checkmark.seal.fill")
                                     .foregroundStyle(.cyan)
                                     .font(.caption)
                             }
@@ -378,7 +378,7 @@ struct UpdatesView: View {
                 path.append(.channels)
             } label: {
                 HStack {
-                    Image(systemName: "square.grid.2x2")
+                    OneWayResolvedIcon(systemName: "square.grid.2x2")
                     Text("Explore more")
                         .fontWeight(.semibold)
                 }
@@ -392,7 +392,7 @@ struct UpdatesView: View {
                 path.append(.createChannel)
             } label: {
                 HStack {
-                    Image(systemName: "plus")
+                    OneWayResolvedIcon(systemName: "plus")
                     Text("Create channel")
                         .fontWeight(.semibold)
                 }
@@ -474,7 +474,7 @@ struct UpdatesView: View {
             }
 
             Spacer()
-            Image(systemName: "chevron.right")
+            OneWayResolvedIcon(systemName: "chevron.right")
                 .foregroundStyle(Theme.textMuted)
         }
     }
@@ -527,7 +527,7 @@ struct UpdatesView: View {
                     .font(.system(size: 23, weight: .bold))
                     .foregroundStyle(Color.white.opacity(0.98))
                 Spacer()
-                Image(systemName: icon)
+                OneWayResolvedIcon(systemName: icon)
                     .font(.system(size: 24, weight: .bold))
                     .foregroundStyle(Color.white.opacity(0.98))
             }
@@ -564,7 +564,7 @@ private struct StatusPrivacySheetView: View {
                             }
                             Spacer()
                             if selectedScope == .friends {
-                                Image(systemName: "checkmark.circle.fill")
+                                OneWayResolvedIcon(systemName: "checkmark.circle.fill")
                                     .foregroundStyle(Color.green)
                             }
                         }
@@ -583,7 +583,7 @@ private struct StatusPrivacySheetView: View {
                             }
                             Spacer()
                             if selectedScope == .everyone {
-                                Image(systemName: "checkmark.circle.fill")
+                                OneWayResolvedIcon(systemName: "checkmark.circle.fill")
                                     .foregroundStyle(Color.green)
                             }
                         }
@@ -733,7 +733,7 @@ private struct UpdateStatusComposerView: View {
                 .lineLimit(3...5)
 
             PhotosPicker(selection: $selectedMediaItem, matching: .any(of: [.images, .videos])) {
-                Label("Add photo or video", systemImage: "photo.on.rectangle.angled")
+                OneWayResolvedLabel("Add photo or video", systemImage: "photo.on.rectangle.angled")
             }
             .disabled(isLoadingMedia)
             .buttonStyle(.plain)
@@ -753,7 +753,7 @@ private struct UpdateStatusComposerView: View {
                     self.selectedMedia = nil
                     selectedMediaItem = nil
                 } label: {
-                    Label("Remove attachment", systemImage: "trash")
+                    OneWayResolvedLabel("Remove attachment", systemImage: "trash")
                 }
             }
         }
@@ -837,9 +837,9 @@ private struct ChannelsDirectoryView: View {
     var body: some View {
         List {
             Section("Suggested Channels") {
-                Label("One Way Product", systemImage: "checkmark.seal")
-                Label("Security Weekly", systemImage: "lock.shield")
-                Label("Creator Hub", systemImage: "sparkles")
+                OneWayResolvedLabel("One Way Product", systemImage: "checkmark.seal")
+                OneWayResolvedLabel("Security Weekly", systemImage: "lock.shield")
+                OneWayResolvedLabel("Creation Tools", systemImage: "sparkles")
             }
         }
         .navigationTitle("Channels")

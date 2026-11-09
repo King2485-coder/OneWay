@@ -17,7 +17,7 @@ struct CameraCaptureView: View {
                 .ignoresSafeArea()
             } else {
                 VStack(spacing: 12) {
-                    Image(systemName: "camera.slash")
+                    OneWayResolvedIcon(systemName: "camera.slash")
                         .font(.system(size: 36, weight: .semibold))
                         .foregroundStyle(Theme.textPrimary)
                     Text("Camera is not available on this device.")

@@ -1,0 +1,23 @@
+{
+  "images": [
+    {
+      "filename": "OneWaySculptedEmail.png",
+      "idiom": "universal",
+      "scale": "1x"
+    },
+    {
+      "filename": "OneWaySculptedEmail@2x.png",
+      "idiom": "universal",
+      "scale": "2x"
+    },
+    {
+      "filename": "OneWaySculptedEmail@3x.png",
+      "idiom": "universal",
+      "scale": "3x"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "configurations" : [
+    {
+      "id" : "4F918516-6C3F-4EBB-A764-4F7E9D40D66D",
+      "name" : "Release QA",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : true
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:OneWay.xcodeproj",
+        "identifier" : "B10100000000000000000002",
+        "name" : "OneWayTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:OneWay.xcodeproj",
+        "identifier" : "B10100000000000000000005",
+        "name" : "OneWayUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

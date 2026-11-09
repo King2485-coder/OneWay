@@ -12,6 +12,8 @@ final class ChatsListViewModel: ObservableObject {
 
     private let messagingService: MessagingService
     private let storyService: StoryService
+    private var isRefreshingChats = false
+    private var realtimeUpdatesTask: Task<Void, Never>?
 
     init(messagingService: MessagingService, storyService: StoryService) {
         self.messagingService = messagingService
@@ -29,9 +31,18 @@ final class ChatsListViewModel: ObservableObject {
         }
     }
 
-    func loadChats() async {
-        isLoading = true
-        defer { isLoading = false }
+    func loadChats(showLoading: Bool = true) async {
+        guard !isRefreshingChats else { return }
+        isRefreshingChats = true
+        if showLoading {
+            isLoading = true
+        }
+        defer {
+            isRefreshingChats = false
+            if showLoading {
+                isLoading = false
+            }
+        }
 
         do {
             async let loadedChats = messagingService.fetchChats()
@@ -40,8 +51,80 @@ final class ChatsListViewModel: ObservableObject {
             friendStories = try await loadedStories
             errorMessage = nil
         } catch {
-            errorMessage = "Unable to load chats."
+            if showLoading {
+                errorMessage = "Unable to load chats."
+            }
         }
+    }
+
+    func startRealtimeUpdates() {
+        realtimeUpdatesTask?.cancel()
+        realtimeUpdatesTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let stream = self.messagingService.observeChatUpdates()
+                for try await event in stream {
+                    await self.applyRealtimeEvent(event)
+                }
+            } catch {
+                await MainActor.run {
+                    if self.chats.isEmpty {
+                        self.errorMessage = "Realtime chat updates are reconnecting."
+                    }
+                }
+            }
+        }
+    }
+
+    func stopRealtimeUpdates() {
+        realtimeUpdatesTask?.cancel()
+        realtimeUpdatesTask = nil
+    }
+
+    private func applyRealtimeEvent(_ event: ChatRealtimeEvent) async {
+        if let chatID = event.chatID, let message = event.message {
+            applyRealtimeMessage(message, chatID: chatID)
+        } else {
+            await loadChats(showLoading: false)
+        }
+    }
+
+    private func applyRealtimeMessage(_ message: ChatMessage, chatID: UUID) {
+        guard let index = chats.firstIndex(where: { $0.id == chatID }) else {
+            Task { await loadChats(showLoading: false) }
+            return
+        }
+        let current = chats[index]
+        let unreadIncrement = message.direction == .incoming ? 1 : 0
+        chats[index] = ChatSummary(
+            id: current.id,
+            participantName: current.participantName,
+            participantHandle: current.participantHandle,
+            lastMessagePreview: previewText(for: message),
+            lastMessageAt: message.sentAt,
+            unreadCount: current.unreadCount + unreadIncrement,
+            presence: current.presence,
+            isPinned: current.isPinned,
+            isMuted: current.isMuted,
+            isArchived: current.isArchived,
+            isGroup: current.isGroup,
+            isExternal: current.isExternal,
+            disappearingAfterSeconds: current.disappearingAfterSeconds,
+            draft: current.draft
+        )
+        chats.sort {
+            if $0.isPinned != $1.isPinned { return $0.isPinned }
+            return $0.lastMessageAt > $1.lastMessageAt
+        }
+    }
+
+    private func previewText(for message: ChatMessage) -> String {
+        let trimmed = message.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { return trimmed }
+        if let attachment = message.attachment {
+            return "[\(attachment.mediaType.rawValue.capitalized)] \(attachment.fileName)"
+        }
+        return "Message"
     }
 
     func togglePinned(_ chat: ChatSummary) {

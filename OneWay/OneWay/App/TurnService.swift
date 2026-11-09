@@ -41,7 +41,7 @@ enum TurnService {
             // Try the simple/legacy shape first.
             if let creds = try? JSONDecoder().decode(TurnCredentials.self, from: data) {
                 #if DEBUG
-                print("✅ TURN creds (simple):", creds)
+                print("✅ TURN creds (simple):", redactedSummary(creds))
                 #endif
                 return creds
             }
@@ -66,14 +66,18 @@ enum TurnService {
                 urls: first.urls
             )
             #if DEBUG
-            print("✅ TURN creds (iceServers):", creds)
+            print("✅ TURN creds (iceServers):", redactedSummary(creds))
             #endif
             return creds
         } catch {
             #if DEBUG
-            print("❌ TURN fetch/decode error:", error)
+            print("❌ TURN fetch/decode error:", PrivacyLog.redact(error.localizedDescription))
             #endif
             return nil
         }
+    }
+
+    private static func redactedSummary(_ creds: TurnCredentials) -> String {
+        "username=\(PrivacyLog.shortID(creds.username)) credential=[REDACTED_SECRET] ttl=\(creds.ttl) urls=\(PrivacyLog.redact(creds.urls))"
     }
 }

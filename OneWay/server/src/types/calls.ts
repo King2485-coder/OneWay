@@ -9,7 +9,11 @@
 export type CallStatus =
   | "idle"
   | "ringing"
+  | "accepting"
   | "accepted"
+  | "joining"
+  | "connected"
+  | "reconnecting"
   | "declined"
   | "ended"
   | "missed"
@@ -17,14 +21,36 @@ export type CallStatus =
 
 export interface CallSession {
   callId: string;          // UUID
+  id?: string;             // v2 alias for callId
   roomName: string;        // sanitized; lives in LiveKit
   callerId: string;
   calleeId: string;
+  callerUserId?: string;   // v2 alias for callerId
+  recipientUserId?: string;// v2 alias for calleeId
+  type?: "audio" | "video";
   status: CallStatus;
   hasVideo: boolean;
+  callerIdentity?: string;
+  recipientIdentity?: string;
   createdAt: number;       // unix ms
+  updatedAt?: number;      // unix ms
   acceptedAt?: number;     // unix ms
+  callerAcceptedAt?: number;
+  recipientAcceptedAt?: number;
+  callerJoinedAt?: number;
+  recipientJoinedAt?: number;
+  callerMediaReadyAt?: number;
+  recipientMediaReadyAt?: number;
+  connectedAt?: number;
   endedAt?: number;        // unix ms
+  endedByUserId?: string;
+  endReason?: string;
+  version?: number;
+  endOperationIds?: string[];
+  callerAudioPublicationSid?: string;
+  recipientAudioPublicationSid?: string;
+  callerVideoPublicationSid?: string;
+  recipientVideoPublicationSid?: string;
   liveKitRoom?: string;    // identical to roomName once joined; kept distinct
                            // so we can change room-naming policy later without
                            // breaking the on-the-wire shape.
@@ -136,9 +162,18 @@ export function sanitizeRoomName(input: string): string {
 
 /** True if the user is the caller, callee, or a joined participant. */
 export function isParticipant(call: CallSession, userId: string): boolean {
+  const normalizedUserId = normalizeUserIdForCompare(userId);
   return (
-    call.callerId === userId ||
-    call.calleeId === userId ||
-    call.participants.includes(userId)
+    normalizeUserIdForCompare(call.callerId) === normalizedUserId ||
+    normalizeUserIdForCompare(call.calleeId) === normalizedUserId ||
+    call.participants.some((participant) => normalizeUserIdForCompare(participant) === normalizedUserId)
   );
+}
+
+export function sameUserId(left: string, right: string): boolean {
+  return normalizeUserIdForCompare(left) === normalizeUserIdForCompare(right);
+}
+
+export function normalizeUserIdForCompare(value: string): string {
+  return value.toLowerCase();
 }

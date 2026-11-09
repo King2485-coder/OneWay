@@ -24,7 +24,7 @@ final class ApplePayManager: NSObject {
         let request = PKPaymentRequest()
         request.merchantIdentifier = "merchant.oneway.app"
         request.supportedNetworks = [.visa, .masterCard, .amex]
-        request.merchantCapabilities = .capability3DS
+        request.merchantCapabilities = .threeDSecure
         request.countryCode = "US"
         request.currencyCode = "USD"
         request.paymentSummaryItems = [
@@ -58,8 +58,18 @@ final class ApplePayManager: NSObject {
 #if canImport(PassKit)
 extension ApplePayManager: PKPaymentAuthorizationViewControllerDelegate {
     func paymentAuthorizationViewController(_ controller: PKPaymentAuthorizationViewController, didAuthorizePayment payment: PKPayment, handler completion: @escaping (PKPaymentAuthorizationResult) -> Void) {
-        completion(PKPaymentAuthorizationResult(status: .success, errors: nil))
-        self.completion?(true)
+        // Never claim that funds moved until the token is accepted by the
+        // configured payment processor. The storefront currently uses its
+        // server-created Stripe checkout flow; direct token processing stays
+        // disabled until that backend endpoint is enabled.
+        _ = payment.token
+        let error = NSError(
+            domain: "app.oneway.payments",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Apple Pay is temporarily unavailable. Choose the secure checkout option instead."]
+        )
+        completion(PKPaymentAuthorizationResult(status: .failure, errors: [error]))
+        self.completion?(false)
     }
 
     func paymentAuthorizationViewControllerDidFinish(_ controller: PKPaymentAuthorizationViewController) {

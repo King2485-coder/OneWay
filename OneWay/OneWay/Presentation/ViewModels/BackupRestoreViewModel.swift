@@ -17,18 +17,30 @@ final class BackupRestoreViewModel: ObservableObject {
     }
 
     func setOptIn(_ enabled: Bool) async {
-        try? await service.setOptIn(enabled)
-        optedIn = enabled
+        do {
+            try await service.setOptIn(enabled)
+            optedIn = enabled
+        } catch {
+            optedIn = false
+            statusMessage = error.localizedDescription
+        }
     }
 
     func createBackup() async {
-        if let id = try? await service.createEncryptedBackup() {
-            statusMessage = "Created encrypted backup: \(id)"
+        do {
+            let id = try await service.createBackup()
+            statusMessage = "Created backup: \(id)"
+        } catch {
+            statusMessage = error.localizedDescription
         }
     }
 
     func restoreBackup() async {
-        try? await service.restoreLatestBackup()
-        statusMessage = "Restore completed from latest backup."
+        do {
+            try await service.restoreLatestBackup()
+            statusMessage = "Restore completed from latest backup."
+        } catch {
+            statusMessage = error.localizedDescription
+        }
     }
 }

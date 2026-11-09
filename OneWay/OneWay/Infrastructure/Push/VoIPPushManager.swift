@@ -32,6 +32,7 @@ final class VoIPPushManager: NSObject {
 
     /// Backend client that registers push tokens. Injected by the env.
     var registrar: PushTokenRegistering?
+    private var authObserver: NSObjectProtocol?
 
     #if canImport(PushKit)
     private var registry: PKPushRegistry?
@@ -69,6 +70,7 @@ final class VoIPPushManager: NSObject {
 
     func start() {
         register()
+        observeAuthChanges()
     }
 
     // MARK: - PushKit event handling
@@ -76,7 +78,18 @@ final class VoIPPushManager: NSObject {
     enum Event {
         case credentialsUpdated(Data)
         case credentialsInvalidated
-        case incoming(payload: [AnyHashable: Any], completion: () -> Void)
+        case incoming(payload: IncomingPayload, completion: () -> Void)
+    }
+
+    struct IncomingPayload: Sendable {
+        let roomName: String?
+        let hasVideo: Bool
+        let callerID: String?
+        let callerName: String
+        let callerNumber: String?
+        let callerDisplay: String
+        let callID: UUID
+        let eventType: String?
     }
 
     fileprivate func handle(_ event: Event) {
@@ -93,7 +106,7 @@ final class VoIPPushManager: NSObject {
     private func forwardToken(_ token: Data) {
         let hex = token.map { String(format: "%02x", $0) }.joined()
         lastVoIPToken = hex
-        print("📲 VoIP Token:", hex)
+        print("📲 VoIP Token:", PrivacyLog.shortID(hex))
         Task { [weak self] in
             await self?.registrar?.register(voipToken: hex,
                                             environment: Self.currentEnvironment())
@@ -107,34 +120,65 @@ final class VoIPPushManager: NSObject {
     /// Decode an APNs payload, ring CallKit, stash a pending session in
     /// `LiveKitCallService`. Must complete its CallKit work before
     /// `completion()` returns — anything async runs in a Task afterwards.
-    private func handleIncomingPush(payload: [AnyHashable: Any], completion: () -> Void) {
+    private func handleIncomingPush(payload: IncomingPayload, completion: () -> Void) {
         defer { completion() }
 
-        let roomName = payload["roomName"] as? String
-        let hasVideo = (payload["hasVideo"] as? Bool) ?? true
-        let callerID = payload["callerId"] as? String
-        let callerName = (payload["callerName"] as? String)
-            ?? (payload["displayName"] as? String)
-            ?? callerID
-            ?? "OneWay Caller"
-        let callIdString = payload["callId"] as? String ?? UUID().uuidString
-        let callID = UUID(uuidString: callIdString) ?? UUID()
+        if payload.callerID == AuthTokenStore.shared.currentUserID() {
+            #if DEBUG
+            print("📲 Ignoring self-originated VoIP push for call:", payload.callID)
+            #endif
+            return
+        }
 
-        LiveKitManager.shared.pendingRoomName = roomName
+        if let eventType = payload.eventType,
+           eventType != "incoming_oneway_call",
+           eventType != "call:ringing" {
+            #if DEBUG
+            print(
+                "DUPLICATE_INCOMING_PRESENTATION_BLOCKED",
+                "callSessionId=\(PrivacyLog.shortID(payload.callID.uuidString))",
+                "existingCallKitUUID=\(PrivacyLog.shortID(CallKitManager.shared.activeCallUUID?.uuidString ?? ""))",
+                "eventType=\(eventType)",
+                "sourceFunction=VoIPPushManager.handleIncomingPush",
+                "reason=non_incoming_call_event"
+            )
+            #endif
+            return
+        }
 
-        if let callerID {
+        if CallKitManager.shared.hasActiveOutgoingSession(callSessionId: payload.callID.uuidString)
+            || CallKitManager.shared.isActiveOutgoingCall(uuid: payload.callID) {
+            #if DEBUG
+            print(
+                "DUPLICATE_INCOMING_PRESENTATION_BLOCKED",
+                "callSessionId=\(PrivacyLog.shortID(payload.callID.uuidString))",
+                "existingCallKitUUID=\(PrivacyLog.shortID(CallKitManager.shared.activeCallUUID?.uuidString ?? ""))",
+                "eventType=\(payload.eventType ?? "incoming_oneway_call")",
+                "sourceFunction=VoIPPushManager.handleIncomingPush",
+                "reason=active_outgoing_session"
+            )
+            #endif
+            return
+        }
+
+        LiveKitManager.shared.pendingRoomName = payload.roomName
+
+        if let callerID = payload.callerID {
             environment?.callService.prepareIncomingCall(
-                callID: callID,
+                callID: payload.callID,
                 callerID: callerID,
-                hasVideo: hasVideo,
-                roomName: roomName
+                hasVideo: payload.hasVideo,
+                roomName: payload.roomName
             )
         }
 
         CallKitManager.shared.reportIncomingCall(
-            uuid: callID,
-            callerName: callerName,
-            hasVideo: hasVideo
+            uuid: payload.callID,
+            callerName: payload.callerName,
+            callerNumber: payload.callerNumber,
+            hasVideo: payload.hasVideo,
+            callSessionId: payload.callID.uuidString,
+            sourceFunction: "VoIPPushManager.handleIncomingPush"
         )
     }
 
@@ -146,6 +190,24 @@ final class VoIPPushManager: NSObject {
         #else
         return "production"
         #endif
+    }
+
+    private func observeAuthChanges() {
+        guard authObserver == nil else { return }
+        authObserver = NotificationCenter.default.addObserver(
+            forName: AuthTokenStore.tokenDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                let manager = VoIPPushManager.shared
+                guard let token = manager.lastVoIPToken else { return }
+                await manager.registrar?.register(
+                    voipToken: token,
+                    environment: Self.currentEnvironment()
+                )
+            }
+        }
     }
 }
 

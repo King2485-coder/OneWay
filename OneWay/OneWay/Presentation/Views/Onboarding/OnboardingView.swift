@@ -19,7 +19,7 @@ struct OnboardingView: View {
             kind: .privateMessaging
         ),
         .init(
-            title: "End-to-End Encrypted",
+            title: "Privacy You Can See",
             subtitle: "Nobody can read your messages. Not even us.",
             kind: .encrypted
         ),
@@ -97,41 +97,40 @@ struct OnboardingView: View {
 
     @ViewBuilder
     private func pageView(for page: OnboardingPage) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Image("planeWatermark")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 28, height: 28)
-                    .opacity(0.9)
-                Text("OneWay")
-                    .font(.headline.weight(.semibold))
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    OneWayLogoView(size: 28, showsGlow: false, showsBorder: false, decorative: true)
+                    Text("OneWay")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                    Spacer()
+                }
+
+                Text(page.title)
+                    .font(.system(size: 42, weight: .bold))
                     .foregroundStyle(Theme.textPrimary)
-                Spacer()
+                    .lineLimit(2)
+                    .offset(y: animateHero ? 0 : 40)
+                    .opacity(animateHero ? 1 : 0)
+
+                Text(page.subtitle)
+                    .font(.title3)
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(3)
+                    .offset(y: animateHero ? 0 : 28)
+                    .opacity(animateHero ? 1 : 0)
+
+                Spacer(minLength: 12)
+
+                PhoneMockupCard(kind: page.kind)
+                    .offset(y: animateMock ? 0 : 32)
+                    .scaleEffect(animateMock ? 1 : 0.96)
+                    .opacity(animateMock ? 1 : 0)
+
+                Spacer(minLength: 32)
             }
-
-            Text(page.title)
-                .font(.system(size: 42, weight: .bold))
-                .foregroundStyle(Theme.textPrimary)
-                .lineLimit(2)
-                .offset(y: animateHero ? 0 : 40)
-                .opacity(animateHero ? 1 : 0)
-
-            Text(page.subtitle)
-                .font(.title3)
-                .foregroundStyle(Theme.textSecondary)
-                .lineLimit(3)
-                .offset(y: animateHero ? 0 : 28)
-                .opacity(animateHero ? 1 : 0)
-
-            Spacer(minLength: 12)
-
-            PhoneMockupCard(kind: page.kind)
-                .offset(y: animateMock ? 0 : 32)
-                .scaleEffect(animateMock ? 1 : 0.96)
-                .opacity(animateMock ? 1 : 0)
-
-            Spacer()
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .transition(.asymmetric(
             insertion: .move(edge: .trailing).combined(with: .opacity),
@@ -258,7 +257,7 @@ private struct PhoneMockupCard: View {
                     .frame(height: 120)
                     .overlay {
                         VStack(spacing: 8) {
-                            Image(systemName: "lock.shield.fill")
+                            OneWayResolvedIcon(systemName: "lock.shield.fill")
                                 .font(.system(size: 34))
                                 .foregroundStyle(Theme.primaryBlue)
                             Text("Secure Session")
@@ -266,7 +265,7 @@ private struct PhoneMockupCard: View {
                                 .foregroundStyle(Theme.textPrimary)
                         }
                     }
-                bubble("Message encrypted on device", mine: false)
+                bubble("Message ready for OneWay", mine: false)
                 bubble("Only you and Sam can read this.", mine: true)
             }
         case .sendAnything:
@@ -281,11 +280,7 @@ private struct PhoneMockupCard: View {
                     .fill(Theme.accentGradient.opacity(0.38))
                     .frame(height: 180)
                     .overlay {
-                        Image("planeWatermark")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 120, height: 120)
-                            .opacity(0.9)
+                        OneWayLogoView(size: 120, showsGlow: false, showsBorder: false, decorative: true)
                     }
                 Text("Your chats. Your people. Your privacy.")
                     .multilineTextAlignment(.center)
@@ -302,7 +297,7 @@ private struct PhoneMockupCard: View {
                     .fill(Color.white.opacity(0.12))
                     .frame(height: 74)
                     .overlay {
-                        Image(systemName: "photo")
+                        OneWayResolvedIcon(systemName: "photo")
                             .foregroundStyle(Color.white.opacity(0.85))
                     }
             }

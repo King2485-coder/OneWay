@@ -12,3 +12,4 @@ protocol ContactImportService {
     func requestAccessIfNeeded() async -> ContactPermissionState
     func importContacts(limit: Int?) async throws -> [ContactEntry]
 }
+ 

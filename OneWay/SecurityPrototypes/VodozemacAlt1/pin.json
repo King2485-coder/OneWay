@@ -1,0 +1,19 @@
+{
+  "phase": "ALT-1_ISOLATED_ONLY",
+  "observed_date": "2026-10-23",
+  "repository": "https://github.com/matrix-org/vodozemac",
+  "version": "0.11.1",
+  "tag": "0.11.1",
+  "tag_object": "392d0e380676196137be9182c1c4ca170c19d5e7",
+  "commit": "3e11ae87d157da6bcac3cbf7825d37c8f5ed60af",
+  "tree": "21e53eaa9acaf98e5d1188797da6eb4e710d89d0",
+  "license": "Apache-2.0",
+  "source_url": "https://codeload.github.com/matrix-org/vodozemac/tar.gz/3e11ae87d157da6bcac3cbf7825d37c8f5ed60af",
+  "source_sha256": "218c75569ad6532ff9daff269984e80b9b083426dff980a341cb73017dbb50cb",
+  "cargo_lock_sha256": "b2048f5973dde6e8ce7b1952d39472d5ab9413225a7e4f3a1228ecfdc3935097",
+  "rust_toolchain": "1.89.0",
+  "default_features": false,
+  "enabled_optional_features": [],
+  "tag_signature": "GitHub API verified=true reason=valid; local GPG verification unavailable",
+  "admission": "NOT_PRODUCTION_APPROVED"
+}

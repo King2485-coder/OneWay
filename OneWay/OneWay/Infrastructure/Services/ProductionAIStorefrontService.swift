@@ -64,11 +64,14 @@ final class ProductionAIStorefrontService: AIStorefrontService {
             id: UUID(),
             ownerID: UUID(),
             name: structured.name,
+            handle: slugify(structured.name),
             category: structured.category,
             tagline: structured.tagline,
             description: structured.description,
             logoURL: nil,
             coverImageURL: nil,
+            announcement: "Opening soon on OneWay.",
+            sellerStory: "Share your seller story here.",
             contactEmail: nil,
             phone: nil,
             website: nil,
@@ -92,6 +95,13 @@ final class ProductionAIStorefrontService: AIStorefrontService {
             theme: business.theme,
             layout: business.layout,
             slug: slugify(structured.name),
+            shopURL: APIConfig.storefrontPublicURLString(for: slugify(structured.name)),
+            paymentStatus: "pending",
+            paymentsReady: false,
+            policiesReady: false,
+            setupComplete: false,
+            publishChecklist: ["Connect payments", "Add at least one product", "Add shop policies"],
+            policy: .default,
             isPublished: false,
             publishedState: .draft
         )
@@ -101,6 +111,10 @@ final class ProductionAIStorefrontService: AIStorefrontService {
 
     func regenerateSection(storefront: Storefront, section: StorefrontSectionType) async throws -> StorefrontSection {
         StorefrontSection(type: section, title: "Updated \(section.rawValue.capitalized)", body: "AI refreshed this section.", items: storefront.sections.first(where: { $0.type == .products })?.items ?? [], mediaURLs: [])
+    }
+
+    func storefrontHelp(type: StorefrontAIHelpType, context: StorefrontAIHelpContext) async throws -> String {
+        StorefrontAIFallback.text(for: type, context: context)
     }
 
     // MARK: - OpenAI response

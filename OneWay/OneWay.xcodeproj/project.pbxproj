@@ -7,36 +7,230 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		3C8CEEB32FA4CDD400A57572 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = 3C8CEEB22FA4CDD400A57572 /* LiveKit */; };
+		3C3B7B07F266EE72E0756DB6 /* OneWayVodozemacAdmission.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = ECBEDAEFC969E1A7EED816C7 /* OneWayVodozemacAdmission.framework */; };
+		462AA1C50786BB556564B71E /* OneWayE2EEEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C93175EA5A80A0AF3198EDF4 /* OneWayE2EEEngine.swift */; };
+		491F8B05BF9D8565BE29FB77 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0206872A2770FCFB0F0F2907 /* Foundation.framework */; };
+		4FC0E993615C42EEB1E58E50 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = D66CB04AED674CCBBA3CC786 /* LiveKit */; };
+		5254805E4A43ECE6F6E7F882 /* OneWayVodozemacAdmission.framework in Embed Admission Framework */ = {isa = PBXBuildFile; fileRef = ECBEDAEFC969E1A7EED816C7 /* OneWayVodozemacAdmission.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		550FE9FD941C19B32064BEFC /* AdmissionHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7569FD86095C60C3EE89F3F3 /* AdmissionHost.swift */; };
+		5D3EF2C42E39827B9D02B149 /* OneWayVodozemacAdmission.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = ECBEDAEFC969E1A7EED816C7 /* OneWayVodozemacAdmission.framework */; };
+		8D5E0D3A196473717C44EEA3 /* AttachmentEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43761E32FCFC236F8C09E021 /* AttachmentEnvelope.swift */; };
+		934D8261E0F59952FA08A2FF /* oneway_vodozemac.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24A023BC31A1FC1EA9D1AC2B /* oneway_vodozemac.swift */; };
+		944BD4641B877AE230E0DC11 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0206872A2770FCFB0F0F2907 /* Foundation.framework */; };
+		C1B000000000000000000001 /* OneWayBroadcast.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = C1B000000000000000000002 /* OneWayBroadcast.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		C1B000000000000000000003 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = C1B000000000000000000004 /* LiveKit */; };
+		CD4E1ADC2CDF75120C4CA640 /* ProtectedStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D891D27D09D37C539A9E18E /* ProtectedStore.swift */; };
+		DD8DB048978CDFA49CE9D1EA /* AdmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 694DA67D6FA4DA7225105EBB /* AdmissionTests.swift */; };
+		EFCD67C4EBB10106CAE1385B /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0206872A2770FCFB0F0F2907 /* Foundation.framework */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		1555D2759CAAA29CE6444319 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3CE3F52E2F3D97780031C4D2 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2BDF14A980AAE80D465374FB;
+			remoteInfo = OneWayVodozemacAdmission;
+		};
+		7D48078DA2FF599F7A2578E9 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3CE3F52E2F3D97780031C4D2 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D0FE5D159DCD744302B02C14;
+			remoteInfo = VodozemacAdmissionHost;
+		};
+		B10100000000000000000010 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3CE3F52E2F3D97780031C4D2 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3CE3F5352F3D97780031C4D2;
+			remoteInfo = OneWay;
+		};
+		B10100000000000000000012 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3CE3F52E2F3D97780031C4D2 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3CE3F5352F3D97780031C4D2;
+			remoteInfo = OneWay;
+		};
+		C1B000000000000000000005 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3CE3F52E2F3D97780031C4D2 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C1B000000000000000000006;
+			remoteInfo = OneWayBroadcast;
+		};
+		ED78C072E970C5916A13AC0F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3CE3F52E2F3D97780031C4D2 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2BDF14A980AAE80D465374FB;
+			remoteInfo = OneWayVodozemacAdmission;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		3892B98A759DE251F90467B9 /* Embed Admission Framework */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				5254805E4A43ECE6F6E7F882 /* OneWayVodozemacAdmission.framework in Embed Admission Framework */,
+			);
+			name = "Embed Admission Framework";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C1B000000000000000000007 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				C1B000000000000000000001 /* OneWayBroadcast.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		0206872A2770FCFB0F0F2907 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		24A023BC31A1FC1EA9D1AC2B /* oneway_vodozemac.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = oneway_vodozemac.swift; path = Generated/oneway_vodozemac.swift; sourceTree = "<group>"; };
+		2D743631FA114B009F642526 /* VodozemacAdmissionHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VodozemacAdmissionHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3CE3F5362F3D97780031C4D2 /* CipherChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CipherChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		43761E32FCFC236F8C09E021 /* AttachmentEnvelope.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AttachmentEnvelope.swift; path = SecurityPrototypes/Phase1B2/Sources/OneWayPhase1B2/AttachmentEnvelope.swift; sourceTree = "<group>"; };
+		694DA67D6FA4DA7225105EBB /* AdmissionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AdmissionTests.swift; path = Tests/AdmissionTests.swift; sourceTree = "<group>"; };
+		7569FD86095C60C3EE89F3F3 /* AdmissionHost.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AdmissionHost.swift; path = Host/AdmissionHost.swift; sourceTree = "<group>"; };
+		8D891D27D09D37C539A9E18E /* ProtectedStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ProtectedStore.swift; path = Swift/ProtectedStore.swift; sourceTree = "<group>"; };
+		B10100000000000000000001 /* OneWayTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OneWayTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10100000000000000000006 /* OneWayUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OneWayUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10100000000000000000030 /* OneWayTestPlan.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = OneWayTestPlan.xctestplan; sourceTree = "<group>"; };
+		C1B000000000000000000002 /* OneWayBroadcast.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OneWayBroadcast.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		C93175EA5A80A0AF3198EDF4 /* OneWayE2EEEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = OneWayE2EEEngine.swift; path = Swift/OneWayE2EEEngine.swift; sourceTree = "<group>"; };
+		ECBEDAEFC969E1A7EED816C7 /* OneWayVodozemacAdmission.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = OneWayVodozemacAdmission.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		F79B7D8FCF2D23E12FD0867F /* VodozemacAdmissionTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VodozemacAdmissionTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		C1B000000000000000000011 /* Exceptions for "OneWayBroadcast" folder in "OneWayBroadcast" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = C1B000000000000000000006 /* OneWayBroadcast */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		3CE3F5382F3D97780031C4D2 /* OneWay */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = OneWay;
+			sourceTree = "<group>";
+		};
+		B10100000000000000000003 /* OneWayTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			path = OneWayTests;
+			sourceTree = "<group>";
+		};
+		B10100000000000000000007 /* OneWayUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			path = OneWayUITests;
+			sourceTree = "<group>";
+		};
+		C1B000000000000000000008 /* OneWayBroadcast */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C1B000000000000000000011 /* Exceptions for "OneWayBroadcast" folder in "OneWayBroadcast" target */,
+			);
+			path = OneWayBroadcast;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		22EB2AE3612AAE481CDD9EA2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EFCD67C4EBB10106CAE1385B /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		30FB4FDDBE86C8BEC169FC6F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				491F8B05BF9D8565BE29FB77 /* Foundation.framework in Frameworks */,
+				3C3B7B07F266EE72E0756DB6 /* OneWayVodozemacAdmission.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		3CE3F5332F3D97780031C4D2 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				3C8CEEB32FA4CDD400A57572 /* LiveKit in Frameworks */,
+				4FC0E993615C42EEB1E58E50 /* LiveKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4242C2B21718D672F4E2DEDE /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				944BD4641B877AE230E0DC11 /* Foundation.framework in Frameworks */,
+				5D3EF2C42E39827B9D02B149 /* OneWayVodozemacAdmission.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B1010000000000000000000A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B1010000000000000000000D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C1B000000000000000000009 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C1B000000000000000000003 /* LiveKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		1870DBBFB35FAC82CBC61643 /* VodozemacAdmission */ = {
+			isa = PBXGroup;
+			children = (
+				24A023BC31A1FC1EA9D1AC2B /* oneway_vodozemac.swift */,
+				8D891D27D09D37C539A9E18E /* ProtectedStore.swift */,
+				C93175EA5A80A0AF3198EDF4 /* OneWayE2EEEngine.swift */,
+				7569FD86095C60C3EE89F3F3 /* AdmissionHost.swift */,
+				694DA67D6FA4DA7225105EBB /* AdmissionTests.swift */,
+			);
+			name = VodozemacAdmission;
+			path = SecurityPrototypes/VodozemacAdmission;
+			sourceTree = "<group>";
+		};
 		3C77F2FA2FAA88000039FA39 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				745B93E514C67C4F47F15E65 /* iOS */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -45,8 +239,14 @@
 			isa = PBXGroup;
 			children = (
 				3CE3F5382F3D97780031C4D2 /* OneWay */,
+				C1B000000000000000000008 /* OneWayBroadcast */,
+				B10100000000000000000003 /* OneWayTests */,
+				B10100000000000000000007 /* OneWayUITests */,
+				B10100000000000000000030 /* OneWayTestPlan.xctestplan */,
 				3C77F2FA2FAA88000039FA39 /* Frameworks */,
 				3CE3F5372F3D97780031C4D2 /* Products */,
+				1870DBBFB35FAC82CBC61643 /* VodozemacAdmission */,
+				43761E32FCFC236F8C09E021 /* AttachmentEnvelope.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -54,13 +254,55 @@
 			isa = PBXGroup;
 			children = (
 				3CE3F5362F3D97780031C4D2 /* CipherChat.app */,
+				C1B000000000000000000002 /* OneWayBroadcast.appex */,
+				B10100000000000000000001 /* OneWayTests.xctest */,
+				B10100000000000000000006 /* OneWayUITests.xctest */,
+				ECBEDAEFC969E1A7EED816C7 /* OneWayVodozemacAdmission.framework */,
+				2D743631FA114B009F642526 /* VodozemacAdmissionHost.app */,
+				F79B7D8FCF2D23E12FD0867F /* VodozemacAdmissionTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
+		745B93E514C67C4F47F15E65 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				0206872A2770FCFB0F0F2907 /* Foundation.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
+/* Begin PBXHeadersBuildPhase section */
+		0CFD0583075A653C970CDB79 /* Headers */ = {
+			isa = PBXHeadersBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXHeadersBuildPhase section */
+
 /* Begin PBXNativeTarget section */
+		2BDF14A980AAE80D465374FB /* OneWayVodozemacAdmission */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C1043FED5423CFF1CAFF6620 /* Build configuration list for PBXNativeTarget "OneWayVodozemacAdmission" */;
+			buildPhases = (
+				0CFD0583075A653C970CDB79 /* Headers */,
+				CB1753FDBC264B47316D6F46 /* Sources */,
+				22EB2AE3612AAE481CDD9EA2 /* Frameworks */,
+				8DAA8B09C6F89A1F84B12FA9 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = OneWayVodozemacAdmission;
+			productName = OneWayVodozemacAdmission;
+			productReference = ECBEDAEFC969E1A7EED816C7 /* OneWayVodozemacAdmission.framework */;
+			productType = "com.apple.product-type.framework";
+		};
 		3CE3F5352F3D97780031C4D2 /* OneWay */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 3CE3F5412F3D977B0031C4D2 /* Build configuration list for PBXNativeTarget "OneWay" */;
@@ -68,20 +310,126 @@
 				3CE3F5322F3D97780031C4D2 /* Sources */,
 				3CE3F5332F3D97780031C4D2 /* Frameworks */,
 				3CE3F5342F3D97780031C4D2 /* Resources */,
+				C1B000000000000000000007 /* Embed App Extensions */,
+				C0D3A11E7B8A4B749A013001 /* Generate LiveKit dSYMs */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				C1B00000000000000000000D /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				3CE3F5382F3D97780031C4D2 /* OneWay */,
 			);
 			name = OneWay;
 			packageProductDependencies = (
-				3C8CEEB22FA4CDD400A57572 /* LiveKit */,
+				D66CB04AED674CCBBA3CC786 /* LiveKit */,
 			);
 			productName = OneWay;
 			productReference = 3CE3F5362F3D97780031C4D2 /* CipherChat.app */;
+			productType = "com.apple.product-type.application";
+		};
+		8DAC00F8411996BBAC054A66 /* VodozemacAdmissionTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 19F6B5E8B10F0F760A00B27D /* Build configuration list for PBXNativeTarget "VodozemacAdmissionTests" */;
+			buildPhases = (
+				FE56AC1D1C81603B83802E06 /* Sources */,
+				30FB4FDDBE86C8BEC169FC6F /* Frameworks */,
+				1B8F65FA4247BDFAE61F4AD8 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				75B057D7F2024D15315972DF /* PBXTargetDependency */,
+				F788BDBC978D07D719091518 /* PBXTargetDependency */,
+			);
+			name = VodozemacAdmissionTests;
+			productName = VodozemacAdmissionTests;
+			productReference = F79B7D8FCF2D23E12FD0867F /* VodozemacAdmissionTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		B10100000000000000000002 /* OneWayTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B10100000000000000000004 /* Build configuration list for PBXNativeTarget "OneWayTests" */;
+			buildPhases = (
+				B10100000000000000000009 /* Sources */,
+				B1010000000000000000000A /* Frameworks */,
+				B1010000000000000000000B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B1010000000000000000000F /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				B10100000000000000000003 /* OneWayTests */,
+			);
+			name = OneWayTests;
+			productName = OneWayTests;
+			productReference = B10100000000000000000001 /* OneWayTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		B10100000000000000000005 /* OneWayUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B10100000000000000000008 /* Build configuration list for PBXNativeTarget "OneWayUITests" */;
+			buildPhases = (
+				B1010000000000000000000C /* Sources */,
+				B1010000000000000000000D /* Frameworks */,
+				B1010000000000000000000E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B10100000000000000000011 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				B10100000000000000000007 /* OneWayUITests */,
+			);
+			name = OneWayUITests;
+			productName = OneWayUITests;
+			productReference = B10100000000000000000006 /* OneWayUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		C1B000000000000000000006 /* OneWayBroadcast */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C1B00000000000000000000E /* Build configuration list for PBXNativeTarget "OneWayBroadcast" */;
+			buildPhases = (
+				C1B00000000000000000000A /* Sources */,
+				C1B000000000000000000009 /* Frameworks */,
+				C1B00000000000000000000B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				C1B000000000000000000008 /* OneWayBroadcast */,
+			);
+			name = OneWayBroadcast;
+			packageProductDependencies = (
+				C1B000000000000000000004 /* LiveKit */,
+			);
+			productName = OneWayBroadcast;
+			productReference = C1B000000000000000000002 /* OneWayBroadcast.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		D0FE5D159DCD744302B02C14 /* VodozemacAdmissionHost */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BFAC39E0F125A5DEF6A06194 /* Build configuration list for PBXNativeTarget "VodozemacAdmissionHost" */;
+			buildPhases = (
+				8E7E458CD37932B6C58605D1 /* Sources */,
+				4242C2B21718D672F4E2DEDE /* Frameworks */,
+				CA5CA9DFE55442D8DEE77949 /* Resources */,
+				3892B98A759DE251F90467B9 /* Embed Admission Framework */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A1015B08987370747A519C0B /* PBXTargetDependency */,
+			);
+			name = VodozemacAdmissionHost;
+			productName = VodozemacAdmissionHost;
+			productReference = 2D743631FA114B009F642526 /* VodozemacAdmissionHost.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -97,6 +445,17 @@
 					3CE3F5352F3D97780031C4D2 = {
 						CreatedOnToolsVersion = 26.2;
 					};
+					B10100000000000000000002 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 3CE3F5352F3D97780031C4D2;
+					};
+					B10100000000000000000005 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 3CE3F5352F3D97780031C4D2;
+					};
+					C1B000000000000000000006 = {
+						CreatedOnToolsVersion = 26.2;
+					};
 				};
 			};
 			buildConfigurationList = 3CE3F5312F3D97780031C4D2 /* Build configuration list for PBXProject "OneWay" */;
@@ -109,7 +468,7 @@
 			mainGroup = 3CE3F52D2F3D97780031C4D2;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				3C8CEEB12FA4CDD400A57572 /* XCRemoteSwiftPackageReference "client-sdk-swift" */,
+				393687E6A503475CB7F838CB /* XCLocalSwiftPackageReference "LiveKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 3CE3F5372F3D97780031C4D2 /* Products */;
@@ -117,11 +476,24 @@
 			projectRoot = "";
 			targets = (
 				3CE3F5352F3D97780031C4D2 /* OneWay */,
+				C1B000000000000000000006 /* OneWayBroadcast */,
+				B10100000000000000000002 /* OneWayTests */,
+				B10100000000000000000005 /* OneWayUITests */,
+				2BDF14A980AAE80D465374FB /* OneWayVodozemacAdmission */,
+				D0FE5D159DCD744302B02C14 /* VodozemacAdmissionHost */,
+				8DAC00F8411996BBAC054A66 /* VodozemacAdmissionTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		1B8F65FA4247BDFAE61F4AD8 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		3CE3F5342F3D97780031C4D2 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -129,7 +501,75 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		8DAA8B09C6F89A1F84B12FA9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B1010000000000000000000B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B1010000000000000000000E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C1B00000000000000000000B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CA5CA9DFE55442D8DEE77949 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		C0D3A11E7B8A4B749A013001 /* Generate LiveKit dSYMs */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/scripts/generate-livekit-dsyms.sh",
+				"$(BUILT_PRODUCTS_DIR)/RustLiveKitUniFFI.framework/Info.plist",
+				"$(BUILT_PRODUCTS_DIR)/RustLiveKitUniFFI.framework/RustLiveKitUniFFI",
+				"$(BUILT_PRODUCTS_DIR)/LiveKitWebRTC.framework/Info.plist",
+				"$(BUILT_PRODUCTS_DIR)/LiveKitWebRTC.framework/LiveKitWebRTC",
+			);
+			name = "Generate LiveKit dSYMs";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DWARF_DSYM_FOLDER_PATH)/RustLiveKitUniFFI.framework.dSYM/Contents/Info.plist",
+				"$(DWARF_DSYM_FOLDER_PATH)/RustLiveKitUniFFI.framework.dSYM/Contents/Resources/DWARF/RustLiveKitUniFFI",
+				"$(DWARF_DSYM_FOLDER_PATH)/RustLiveKitUniFFI.framework.dSYM/Contents/Resources/Relocations/aarch64/RustLiveKitUniFFI.yml",
+				"$(DWARF_DSYM_FOLDER_PATH)/LiveKitWebRTC.framework.dSYM/Contents/Info.plist",
+				"$(DWARF_DSYM_FOLDER_PATH)/LiveKitWebRTC.framework.dSYM/Contents/Resources/DWARF/LiveKitWebRTC",
+				"$(DWARF_DSYM_FOLDER_PATH)/LiveKitWebRTC.framework.dSYM/Contents/Resources/Relocations/aarch64/LiveKitWebRTC.yml",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/scripts/generate-livekit-dsyms.sh\"";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		3CE3F5322F3D97780031C4D2 /* Sources */ = {
@@ -139,9 +579,217 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		8E7E458CD37932B6C58605D1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				550FE9FD941C19B32064BEFC /* AdmissionHost.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B10100000000000000000009 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B1010000000000000000000C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C1B00000000000000000000A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CB1753FDBC264B47316D6F46 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				934D8261E0F59952FA08A2FF /* oneway_vodozemac.swift in Sources */,
+				CD4E1ADC2CDF75120C4CA640 /* ProtectedStore.swift in Sources */,
+				462AA1C50786BB556564B71E /* OneWayE2EEEngine.swift in Sources */,
+				8D5E0D3A196473717C44EEA3 /* AttachmentEnvelope.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FE56AC1D1C81603B83802E06 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DD8DB048978CDFA49CE9D1EA /* AdmissionTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		75B057D7F2024D15315972DF /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = OneWayVodozemacAdmission;
+			target = 2BDF14A980AAE80D465374FB /* OneWayVodozemacAdmission */;
+			targetProxy = ED78C072E970C5916A13AC0F /* PBXContainerItemProxy */;
+		};
+		A1015B08987370747A519C0B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = OneWayVodozemacAdmission;
+			target = 2BDF14A980AAE80D465374FB /* OneWayVodozemacAdmission */;
+			targetProxy = 1555D2759CAAA29CE6444319 /* PBXContainerItemProxy */;
+		};
+		B1010000000000000000000F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3CE3F5352F3D97780031C4D2 /* OneWay */;
+			targetProxy = B10100000000000000000010 /* PBXContainerItemProxy */;
+		};
+		B10100000000000000000011 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3CE3F5352F3D97780031C4D2 /* OneWay */;
+			targetProxy = B10100000000000000000012 /* PBXContainerItemProxy */;
+		};
+		C1B00000000000000000000D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C1B000000000000000000006 /* OneWayBroadcast */;
+			targetProxy = C1B000000000000000000005 /* PBXContainerItemProxy */;
+		};
+		F788BDBC978D07D719091518 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = VodozemacAdmissionHost;
+			target = D0FE5D159DCD744302B02C14 /* VodozemacAdmissionHost */;
+			targetProxy = 7D48078DA2FF599F7A2578E9 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		101FBFD0A67EAE8F7CD2737B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALT2_MODE = stable;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DEVELOPMENT_TEAM = "";
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				ENABLE_TESTABILITY = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"$(SRCROOT)/SecurityPrototypes/VodozemacAdmission/Generated\"",
+				);
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lsqlite3",
+					"-lresolv",
+					"-liconv",
+					"\"$(SRCROOT)/SecurityPrototypes/VodozemacAdmission/Artifacts/$(ALT2_MODE)/$(PLATFORM_NAME)/liboneway_vodozemac.a\"",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = is.oneway.alt2.OneWayVodozemacAdmission;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_INCLUDE_PATHS = "$(inherited) \"$(SRCROOT)/SecurityPrototypes/VodozemacAdmission/Generated\"";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+				VERSIONING_SYSTEM = "apple-generic";
+				VERSION_INFO_PREFIX = "";
+			};
+			name = Release;
+		};
+		1163A0F1F42283805BF62AA6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_TESTABILITY = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"$(SRCROOT)/SecurityPrototypes/VodozemacAdmission/Generated\"",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = is.oneway.alt2.VodozemacAdmissionHost;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = NO;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_INCLUDE_PATHS = "$(inherited) \"$(SRCROOT)/SecurityPrototypes/VodozemacAdmission/Generated\"";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		2DA5BD2F2A777C939CC7535C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALT2_MODE = stable;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DEVELOPMENT_TEAM = "";
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				ENABLE_TESTABILITY = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"$(SRCROOT)/SecurityPrototypes/VodozemacAdmission/Generated\"",
+				);
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lsqlite3",
+					"-lresolv",
+					"-liconv",
+					"\"$(SRCROOT)/SecurityPrototypes/VodozemacAdmission/Artifacts/$(ALT2_MODE)/$(PLATFORM_NAME)/liboneway_vodozemac.a\"",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = is.oneway.alt2.OneWayVodozemacAdmission;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_INCLUDE_PATHS = "$(inherited) \"$(SRCROOT)/SecurityPrototypes/VodozemacAdmission/Generated\"";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
+				VERSION_INFO_PREFIX = "";
+			};
+			name = Debug;
+		};
 		3CE3F53F2F3D977B0031C4D2 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -195,7 +843,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -254,7 +902,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -268,10 +916,12 @@
 		3CE3F5422F3D977B0031C4D2 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APS_ENVIRONMENT = development;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon1way;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = OneWay/OneWay.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 41;
 				DEVELOPMENT_TEAM = 46PM2SB7NF;
 				ENABLE_BITCODE = NO;
 				ENABLE_ON_DEMAND_RESOURCES = NO;
@@ -289,7 +939,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 2.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-fembed-bitcode=off",
@@ -309,10 +959,12 @@
 		3CE3F5432F3D977B0031C4D2 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APS_ENVIRONMENT = production;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon1way;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = OneWay/OneWay.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 41;
 				DEVELOPMENT_TEAM = 46PM2SB7NF;
 				ENABLE_BITCODE = NO;
 				ENABLE_ON_DEMAND_RESOURCES = NO;
@@ -330,7 +982,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 2.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-fembed-bitcode=off",
@@ -347,9 +999,227 @@
 			};
 			name = Release;
 		};
+		61AC84BC0DC01431103C772E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_TESTABILITY = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"$(SRCROOT)/SecurityPrototypes/VodozemacAdmission/Generated\"",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = is.oneway.alt2.VodozemacAdmissionTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_INCLUDE_PATHS = "$(inherited) \"$(SRCROOT)/SecurityPrototypes/VodozemacAdmission/Generated\"";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VodozemacAdmissionHost.app/VodozemacAdmissionHost";
+			};
+			name = Debug;
+		};
+		76BC101185206FC20119C831 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_TESTABILITY = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"$(SRCROOT)/SecurityPrototypes/VodozemacAdmission/Generated\"",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = is.oneway.alt2.VodozemacAdmissionHost;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = NO;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_INCLUDE_PATHS = "$(inherited) \"$(SRCROOT)/SecurityPrototypes/VodozemacAdmission/Generated\"";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		B10100000000000000000020 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 46PM2SB7NF;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.king.OneWayTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CipherChat.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/CipherChat";
+			};
+			name = Debug;
+		};
+		B10100000000000000000021 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 46PM2SB7NF;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.king.OneWayTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CipherChat.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/CipherChat";
+			};
+			name = Release;
+		};
+		B10100000000000000000022 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 46PM2SB7NF;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.king.OneWayUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = OneWay;
+			};
+			name = Debug;
+		};
+		B10100000000000000000023 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 46PM2SB7NF;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.king.OneWayUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = OneWay;
+			};
+			name = Release;
+		};
+		C1B00000000000000000000F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = OneWayBroadcast/OneWayBroadcast.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 41;
+				DEVELOPMENT_TEAM = 46PM2SB7NF;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = OneWayBroadcast/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.king.OneWay.broadcast;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		C1B000000000000000000010 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = OneWayBroadcast/OneWayBroadcast.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 41;
+				DEVELOPMENT_TEAM = 46PM2SB7NF;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = OneWayBroadcast/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.king.OneWay.broadcast;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		E5488A3A8D4F6697D08B2D08 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_TESTABILITY = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"$(SRCROOT)/SecurityPrototypes/VodozemacAdmission/Generated\"",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = is.oneway.alt2.VodozemacAdmissionTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_INCLUDE_PATHS = "$(inherited) \"$(SRCROOT)/SecurityPrototypes/VodozemacAdmission/Generated\"";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VodozemacAdmissionHost.app/VodozemacAdmissionHost";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		19F6B5E8B10F0F760A00B27D /* Build configuration list for PBXNativeTarget "VodozemacAdmissionTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E5488A3A8D4F6697D08B2D08 /* Release */,
+				61AC84BC0DC01431103C772E /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		3CE3F5312F3D97780031C4D2 /* Build configuration list for PBXProject "OneWay" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -368,23 +1238,69 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		B10100000000000000000004 /* Build configuration list for PBXNativeTarget "OneWayTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B10100000000000000000020 /* Debug */,
+				B10100000000000000000021 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B10100000000000000000008 /* Build configuration list for PBXNativeTarget "OneWayUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B10100000000000000000022 /* Debug */,
+				B10100000000000000000023 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BFAC39E0F125A5DEF6A06194 /* Build configuration list for PBXNativeTarget "VodozemacAdmissionHost" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				76BC101185206FC20119C831 /* Release */,
+				1163A0F1F42283805BF62AA6 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C1043FED5423CFF1CAFF6620 /* Build configuration list for PBXNativeTarget "OneWayVodozemacAdmission" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				101FBFD0A67EAE8F7CD2737B /* Release */,
+				2DA5BD2F2A777C939CC7535C /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C1B00000000000000000000E /* Build configuration list for PBXNativeTarget "OneWayBroadcast" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C1B00000000000000000000F /* Debug */,
+				C1B000000000000000000010 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		3C8CEEB12FA4CDD400A57572 /* XCRemoteSwiftPackageReference "client-sdk-swift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/livekit/client-sdk-swift.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.13.0;
-			};
+/* Begin XCLocalSwiftPackageReference section */
+		393687E6A503475CB7F838CB /* XCLocalSwiftPackageReference "LiveKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Vendor/LiveKit;
 		};
-/* End XCRemoteSwiftPackageReference section */
+/* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		3C8CEEB22FA4CDD400A57572 /* LiveKit */ = {
+		C1B000000000000000000004 /* LiveKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 3C8CEEB12FA4CDD400A57572 /* XCRemoteSwiftPackageReference "client-sdk-swift" */;
+			package = 393687E6A503475CB7F838CB /* XCLocalSwiftPackageReference "LiveKit" */;
+			productName = LiveKit;
+		};
+		D66CB04AED674CCBBA3CC786 /* LiveKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 393687E6A503475CB7F838CB /* XCLocalSwiftPackageReference "LiveKit" */;
 			productName = LiveKit;
 		};
 /* End XCSwiftPackageProductDependency section */

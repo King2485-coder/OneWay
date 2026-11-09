@@ -145,6 +145,10 @@ export class S3ObjectStorage implements ObjectStorage {
     return sdk.presigner.getSignedUrl(this.client, cmd, { expiresIn: expiresSeconds });
   }
 
+  hasStablePublicUrls(): boolean {
+    return this.publicUrlBase !== null && this.publicUrlBase.trim().length > 0;
+  }
+
   async read(key: string): Promise<{ stream: Readable; bytes: number; contentType: string } | null> {
     const sdk = loadS3()!;
     const cmd = new sdk.s3.GetObjectCommand({ Bucket: this.bucket, Key: key });

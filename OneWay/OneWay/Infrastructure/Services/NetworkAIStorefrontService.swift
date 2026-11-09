@@ -12,7 +12,7 @@ final class NetworkAIStorefrontService: AIStorefrontService {
         self.session = session
         self.storefrontMapper = mapper
         #if DEBUG
-        print("[AI Service] Base URL: \(baseURL.absoluteString)")
+        print("[AI Service] Base URL: \(PrivacyLog.redact(baseURL.absoluteString))")
         #endif
     }
 
@@ -45,9 +45,9 @@ final class NetworkAIStorefrontService: AIStorefrontService {
         ]
         req.httpBody = try JSONSerialization.data(withJSONObject: payload)
         #if DEBUG
-        print("[AI Request] \(req.httpMethod ?? "POST") \(req.url?.absoluteString ?? "")")
-        print("[AI Request] Headers: \(req.allHTTPHeaderFields ?? [:])")
-        print("[AI Request] Payload: \(payload)")
+        print("[AI Request] \(req.httpMethod ?? "POST") \(PrivacyLog.redactURL(req.url))")
+        print("[AI Request] Headers: \(PrivacyLog.redact(req.allHTTPHeaderFields ?? [:]))")
+        print("[AI Request] Payload: \(PrivacyLog.redact(payload))")
         #endif
         let (data, response): (Data, URLResponse)
         do {
@@ -55,7 +55,7 @@ final class NetworkAIStorefrontService: AIStorefrontService {
         } catch {
 #if DEBUG
             let nserr = error as NSError
-            print("[AI Error] \(error.localizedDescription) domain=\(nserr.domain) code=\(nserr.code)")
+            print("[AI Error] \(PrivacyLog.redact(error.localizedDescription)) domain=\(PrivacyLog.redact(nserr.domain)) code=\(nserr.code)")
 #endif
             throw error
         }
@@ -89,7 +89,7 @@ final class NetworkAIStorefrontService: AIStorefrontService {
         req.httpBody = try JSONSerialization.data(withJSONObject: ["prompt": prompt])
 
         #if DEBUG
-        print("[AI Improve] \(req.httpMethod ?? "POST") \(req.url?.absoluteString ?? "")")
+        print("[AI Improve] \(req.httpMethod ?? "POST") \(PrivacyLog.redactURL(req.url))")
         #endif
 
         let (data, response) = try await session.data(for: req)
@@ -113,6 +113,42 @@ final class NetworkAIStorefrontService: AIStorefrontService {
     func regenerateSection(storefront: Storefront, section: StorefrontSectionType) async throws -> StorefrontSection {
         // Not yet supported by backend; return simple passthrough
         return StorefrontSection(type: section, title: section.rawValue.capitalized, body: nil, items: storefront.sections.first(where: { $0.type == section })?.items ?? [], mediaURLs: [])
+    }
+
+    func storefrontHelp(type: StorefrontAIHelpType, context: StorefrontAIHelpContext) async throws -> String {
+        struct Payload: Encodable {
+            let type: String
+            let context: StorefrontAIHelpContext
+        }
+
+        struct Response: Decodable {
+            let text: String
+        }
+
+        let url = baseURL
+            .appendingPathComponent("api")
+            .appendingPathComponent("ai")
+            .appendingPathComponent("storefront-help")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(AuthTokenStore.shared.currentUserID(), forHTTPHeaderField: "x-dev-user-id")
+        req.setValue(AuthTokenStore.shared.authorizationHeader(), forHTTPHeaderField: "Authorization")
+        req.httpBody = try encoder.encode(Payload(type: type.rawValue, context: context))
+
+        do {
+            let (data, response) = try await session.data(for: req)
+            if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+                let decoded = try decoder.decode(Response.self, from: data)
+                if !decoded.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return decoded.text
+                }
+            }
+        } catch {
+            // Fall through to the local fallback so AI help never becomes a no-op.
+        }
+
+        return StorefrontAIFallback.text(for: type, context: context)
     }
 
     private struct APIAIResponse: Codable {

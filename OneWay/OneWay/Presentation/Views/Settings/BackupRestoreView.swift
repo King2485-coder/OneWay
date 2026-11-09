@@ -10,13 +10,17 @@ struct BackupRestoreView: View {
 
     var body: some View {
         Form {
-            Section("Encrypted Backup") {
+            Section("Backup unavailable") {
+                Text("Client-controlled encrypted backup is not implemented yet. OneWay will not create a misleading or server-readable backup.")
+                    .font(.footnote)
+
                 Toggle("Opt-in backup", isOn: Binding(
                     get: { viewModel.optedIn },
                     set: { newValue in
                         Task { await viewModel.setOptIn(newValue) }
                     }
                 ))
+                .disabled(true)
 
                 Button("Create Backup") {
                     Task { await viewModel.createBackup() }

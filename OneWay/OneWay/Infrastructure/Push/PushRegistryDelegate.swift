@@ -18,7 +18,7 @@ final class PushRegistryDelegate: NSObject, PKPushRegistryDelegate {
                       for type: PKPushType) {
         guard type == .voIP else { return }
         let token = pushCredentials.token
-        Task { @MainActor in
+        DispatchQueue.main.async {
             self.handler?(.credentialsUpdated(token))
         }
     }
@@ -26,7 +26,7 @@ final class PushRegistryDelegate: NSObject, PKPushRegistryDelegate {
     func pushRegistry(_ registry: PKPushRegistry,
                       didInvalidatePushTokenFor type: PKPushType) {
         guard type == .voIP else { return }
-        Task { @MainActor in
+        DispatchQueue.main.async {
             self.handler?(.credentialsInvalidated)
         }
     }
@@ -46,9 +46,60 @@ final class PushRegistryDelegate: NSObject, PKPushRegistryDelegate {
         // CallKit reporting has been requested. We intentionally do NOT
         // call it ourselves here — `VoIPPushManager.handleIncomingPush`
         // calls it in a `defer`.
-        let dict = payload.dictionaryPayload
-        Task { @MainActor in
-            self.handler?(.incoming(payload: dict, completion: completion))
+        let dictionary = payload.dictionaryPayload
+        #if DEBUG
+        let aps = dictionary["aps"] as? [String: Any]
+        let sound = aps?["sound"] as? String
+        let eventType = (dictionary["eventType"] as? String) ?? (dictionary["type"] as? String)
+        let policy = CallPushSoundPolicy.policy(eventType: eventType, hasVideo: (dictionary["hasVideo"] as? Bool) ?? true)
+        let diagnosticCallID = UUID(uuidString: (dictionary["callId"] as? String) ?? "")
+        if let sound {
+            Task { @MainActor in
+                SoundDiagnostics.logAudioPlayRequest(
+                    filename: sound,
+                    soundID: sound,
+                    systemSoundID: nil,
+                    avAudioPlayerURL: nil,
+                    avPlayerURL: nil,
+                    category: .notification,
+                    callId: diagnosticCallID,
+                    sourceFile: #fileID,
+                    sourceFunction: #function,
+                    line: #line
+                )
+            }
+        }
+        print(
+            "CALL_PUSH_SOUND_POLICY",
+            "eventType=\(eventType ?? "unknown")",
+            "payloadSound=\(sound ?? "nil")",
+            "policySound=\(policy.sound ?? "nil")",
+            "usesCallKit=\(policy.usesCallKit)",
+            "sourceFile=PushRegistryDelegate.swift",
+            "function=pushRegistry.didReceiveIncomingPushWith",
+            "timestamp=\(ISO8601DateFormatter().string(from: Date()))"
+        )
+        #endif
+        let callerID = dictionary["callerId"] as? String
+        let callerName = (dictionary["callerName"] as? String)
+            ?? (dictionary["displayName"] as? String)
+            ?? callerID
+            ?? "OneWay Caller"
+        let callerNumber = dictionary["callerNumber"] as? String
+        let callerDisplay = dictionary["displayName"] as? String
+            ?? [callerName, callerNumber].compactMap { $0 }.joined(separator: "\n")
+        let incomingPayload = VoIPPushManager.IncomingPayload(
+            roomName: dictionary["roomName"] as? String,
+            hasVideo: (dictionary["hasVideo"] as? Bool) ?? true,
+            callerID: callerID,
+            callerName: callerName,
+            callerNumber: callerNumber,
+            callerDisplay: callerDisplay,
+            callID: UUID(uuidString: dictionary["callId"] as? String ?? "") ?? UUID(),
+            eventType: (dictionary["eventType"] as? String) ?? (dictionary["type"] as? String)
+        )
+        DispatchQueue.main.async {
+            self.handler?(.incoming(payload: incomingPayload, completion: completion))
         }
     }
 }

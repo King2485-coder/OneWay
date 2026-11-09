@@ -1,0 +1,1 @@
+ALTER TABLE "AlertPushToken" ADD COLUMN "soundEnabled" BOOLEAN NOT NULL DEFAULT true;

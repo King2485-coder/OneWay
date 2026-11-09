@@ -8,7 +8,7 @@ struct PublishSettingsView: View {
     var body: some View {
         Form {
             Section("Status") {
-                Toggle("Published", isOn: $isPublished)
+                Toggle("Live", isOn: $isPublished)
                     .onChange(of: isPublished) { _, newValue in
                         onToggle(newValue)
                     }
@@ -17,6 +17,6 @@ struct PublishSettingsView: View {
                 Button("Ask AI for launch checklist") { onAskAI() }
             }
         }
-        .navigationTitle("Publish")
+        .navigationTitle("Launch")
     }
 }

@@ -8,11 +8,13 @@
  */
 
 import type { Request, RequestHandler } from "express";
+import { logger } from "./logger";
 
 interface RateLimitOptions {
   windowMs: number;
   max: number;
   message?: object;
+  keyGenerator?: (req: Request) => string;
 }
 
 interface RateLimitModule {
@@ -42,6 +44,24 @@ function userOrIp(req: Request): string {
   return `ip:${req.ip ?? "unknown"}`;
 }
 
+function authIdentifierOrIp(req: Request): string {
+  const body = req.body as { identifier?: unknown; email?: unknown } | undefined;
+  const raw = typeof body?.identifier === "string"
+    ? body.identifier
+    : typeof body?.email === "string"
+      ? body.email
+      : "";
+  const identifier = raw.trim().toLowerCase();
+  return identifier.length === 0
+    ? userOrIp(req)
+    : `${userOrIp(req)}:identifier:${identifier}`;
+}
+
+function envInt(name: string, fallback: number): number {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
 function make(opts: RateLimitOptions): RequestHandler {
   const sdk = load();
   if (!sdk) {
@@ -55,9 +75,37 @@ function make(opts: RateLimitOptions): RequestHandler {
     max: opts.max,
     standardHeaders: "draft-7",
     legacyHeaders: false,
-    keyGenerator: userOrIp,
-    handler: (_req, res) => {
-      res.status(429).json(opts.message ?? { error: "rate_limited" });
+    keyGenerator: opts.keyGenerator ?? userOrIp,
+    handler: (req, res) => {
+      const rateLimit = (req as any).rateLimit as {
+        limit?: number;
+        used?: number;
+        remaining?: number;
+        resetTime?: Date;
+      } | undefined;
+      const retryAfterSeconds = rateLimit?.resetTime
+        ? Math.max(1, Math.ceil((rateLimit.resetTime.getTime() - Date.now()) / 1000))
+        : undefined;
+
+      if (retryAfterSeconds) {
+        res.setHeader("Retry-After", String(retryAfterSeconds));
+      }
+
+      logger.warn({
+        method: req.method,
+        path: req.originalUrl ?? req.path,
+        limit: rateLimit?.limit,
+        used: rateLimit?.used,
+        remaining: rateLimit?.remaining,
+        retryAfterSeconds,
+      }, "[rate-limit] request blocked");
+
+      res.status(429).json({
+        error: "rate_limited",
+        message: "Too many login attempts. Please wait a moment before trying again.",
+        retryAfterSeconds,
+        ...(opts.message ?? {}),
+      });
     },
   });
 }
@@ -80,10 +128,39 @@ export const voicemailUploadRateLimit = () => make({
   message: { error: "rate_limited", message: "too many voicemail uploads" },
 });
 
-// 10 attempts / 15 min. Logged out → keyed by IP.
+// Production defaults to 10 attempts / 15 min. Development is deliberately
+// looser because physical-device QA repeatedly switches between test users.
 export const authRateLimit = () => make({
-  windowMs: 15 * 60_000, max: 10,
-  message: { error: "rate_limited", message: "too many auth attempts" },
+  windowMs: envInt(
+    "ONEWAY_AUTH_RATE_LIMIT_WINDOW_MS",
+    process.env.NODE_ENV === "production" ? 15 * 60_000 : 60_000
+  ),
+  max: envInt(
+    "ONEWAY_AUTH_RATE_LIMIT_MAX",
+    process.env.NODE_ENV === "production" ? 10 : 120
+  ),
+  keyGenerator: authIdentifierOrIp,
+  message: {
+    code: "AUTH_RATE_LIMITED",
+  },
+});
+
+// Authenticated people search and Chirp ID lookup. This limits contact
+// enumeration while still allowing normal add-contact flows.
+export const userSearchRateLimit = () => make({
+  windowMs: 60_000, max: 60,
+  message: { error: "rate_limited", message: "too many user search attempts" },
+});
+
+export const chirpLookupRateLimit = () => make({
+  windowMs: 60_000, max: 30,
+  message: { error: "rate_limited", message: "too many Chirp ID lookup attempts" },
+});
+
+export const emailSendRateLimit = () => make({
+  windowMs: 60 * 60_000,
+  max: envInt("ONEWAY_EMAIL_HOURLY_SEND_LIMIT", 25),
+  message: { error: "email_rate_limited", message: "Email sending limit reached. Try again later." },
 });
 
 // 60 token mints / min — tight for the LiveKit token endpoint since each

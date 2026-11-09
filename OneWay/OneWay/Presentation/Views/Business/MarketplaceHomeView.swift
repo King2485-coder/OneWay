@@ -37,7 +37,7 @@ struct MarketplaceHomeView: View {
 
     private var searchBar: some View {
         HStack {
-            Image(systemName: "magnifyingglass")
+            OneWayResolvedIcon(systemName: "magnifyingglass")
             TextField("Search products, stores, categories", text: $viewModel.searchQuery)
                 .onChange(of: viewModel.searchQuery) { _, newValue in
                     viewModel.searchState = newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .idle : .typing
@@ -48,7 +48,7 @@ struct MarketplaceHomeView: View {
                 Button {
                     viewModel.clearSearch()
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
+                    OneWayResolvedIcon(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -83,7 +83,7 @@ struct MarketplaceHomeView: View {
                             handleResultTap(result)
                         } label: {
                             HStack {
-                                Image(systemName: icon(for: result.kind))
+                                OneWayResolvedIcon(systemName: icon(for: result.kind))
                                 VStack(alignment: .leading) {
                                     Text(result.title)
                                         .font(.subheadline.weight(.semibold))

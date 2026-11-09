@@ -65,7 +65,7 @@ struct IncomingCallOverlay: View {
                 .fill(color)
                 .frame(width: 72, height: 72)
                 .overlay(
-                    Image(systemName: systemImage)
+                    OneWayResolvedIcon(systemName: systemImage)
                         .foregroundColor(.white)
                         .font(.title2.weight(.bold))
                 )

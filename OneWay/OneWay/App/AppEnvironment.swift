@@ -97,38 +97,49 @@ final class AppEnvironment: ObservableObject {
         let localPersistence = LocalPersistence(cachePolicy: .metadataOnly)
         let authService = StubAuthService()
         let keyService = StubKeyService()
-        let cryptoService = StubCryptoService()
+        let cryptoService = UnavailableCryptoService()
         let notificationService = StubNotificationService()
         let storageService = StubStorageService()
-        let messagingService = StubMessagingService(
+        let stubMessagingService = StubMessagingService(
             localPersistence: localPersistence,
             cryptoService: cryptoService,
             storageService: storageService
         )
+        #if DEBUG
+        let usesUITestServices = ProcessInfo.processInfo.arguments.contains("--ui-testing")
+        #else
+        let usesUITestServices = false
+        #endif
+        let messagingService: MessagingService = usesUITestServices
+            ? stubMessagingService
+            : NetworkMessagingService(client: .shared)
         let stubFriendService = StubFriendService()
         let stubStoryService = StubStoryService()
         let stubGroupService = StubGroupService()
-        let stubCommunityService = StubCommunityService()
+        let communityService: CommunityService = NetworkCommunityService(client: .shared)
         let contactImportService = DeviceContactImportService()
         let importedContactsStore = UserDefaultsImportedContactsStore()
         let stubDeviceSessionService = StubDeviceSessionService()
-        let stubBackupService = StubBackupService()
-        let stubSafetyService = StubSafetyService()
-        let accountLifecycleService = StubAccountLifecycleService(
-            authService: authService,
+        let backupService = UnavailableBackupService()
+        let safetyService: SafetyService = NetworkSafetyService(client: .shared)
+        let accountLifecycleService = NetworkAccountLifecycleService(
+            client: .shared,
             localPersistence: localPersistence,
-            messagingService: messagingService,
-            friendService: stubFriendService,
-            storyService: stubStoryService,
-            importedContactsStore: importedContactsStore
+            importedContactsStore: importedContactsStore,
+            messagingCache: stubMessagingService,
+            friendCache: stubFriendService,
+            storyCache: stubStoryService
         )
         let accountDeletionScheduler = AccountDeletionScheduler(
             accountLifecycleService: accountLifecycleService
         )
         let apiBaseURL = URL(string: APIConfig.baseURL)!
-        let callBaseURL = URL(string: APIConfig.callBaseURL)!
+        CallNetworkConfiguration.logStartupState()
+        let callBaseURL = CallNetworkConfiguration.restBaseURL
+        let signalingWebSocketURL = CallNetworkConfiguration.signalingWebSocketURL
         let signalingClient: any CallSignalingClient = NetworkCallSignalingClient(
             baseURL: callBaseURL,
+            webSocketURL: signalingWebSocketURL,
             userID: currentUserID()
         )
         let callService: CallService = LiveKitCallService(
@@ -138,14 +149,17 @@ final class AppEnvironment: ObservableObject {
         )
 
         let businessService = NetworkBusinessService(baseURL: apiBaseURL)
+        let friendService: any FriendService = usesUITestServices
+            ? stubFriendService
+            : NetworkFriendService(client: .shared)
         let aiStorefrontService: AIStorefrontService = NetworkAIStorefrontService(
             baseURL: apiBaseURL,
             mapper: businessService.mapStorefront
         )
         let businessSearchService: BusinessSearchService = businessService
-        let systemHealthManager = StubSystemHealthManager()
+        let systemHealthManager = NetworkSystemHealthManager()
         let domainService: DomainService = StubDomainService()
-        let siteService: SiteService = StubSiteService()
+        let siteService: SiteService = NetworkSiteService(client: .shared)
 
         let environment = AppEnvironment(
             authService: authService,
@@ -154,15 +168,15 @@ final class AppEnvironment: ObservableObject {
             notificationService: notificationService,
             storageService: storageService,
             messagingService: messagingService,
-            friendService: stubFriendService as any FriendService,
+            friendService: friendService,
             storyService: stubStoryService as any StoryService,
             groupService: stubGroupService as any GroupService,
-            communityService: stubCommunityService as any CommunityService,
+            communityService: communityService,
             contactImportService: contactImportService,
             importedContactsStore: importedContactsStore,
             deviceSessionService: stubDeviceSessionService as any DeviceSessionService,
-            backupService: stubBackupService as any BackupService,
-            safetyService: stubSafetyService as any SafetyService,
+            backupService: backupService as any BackupService,
+            safetyService: safetyService,
             accountLifecycleService: accountLifecycleService,
             accountDeletionScheduler: accountDeletionScheduler,
             localPersistence: localPersistence,

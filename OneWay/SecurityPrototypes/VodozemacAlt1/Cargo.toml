@@ -1,0 +1,12 @@
+[package]
+name = "oneway-vodozemac-alt1"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.89"
+publish = false
+
+[workspace]
+
+[dependencies]
+vodozemac = { version = "=0.11.1", git = "https://github.com/matrix-org/vodozemac", rev = "3e11ae87d157da6bcac3cbf7825d37c8f5ed60af", default-features = false }
+
