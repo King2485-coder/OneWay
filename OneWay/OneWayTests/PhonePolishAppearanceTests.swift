@@ -39,6 +39,39 @@ import SwiftUI
             }
         }
     }
+    func testKeypadRoutesOneWayVideoSeparatelyFromAudio() async throws {
+        let environment = AppEnvironment.live
+        let suite = "KeypadVideoRouting." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        let cacheKey = "OneWay.CallContacts.\(AppEnvironment.currentUserID())"
+        let previousContacts = UserDefaults.standard.data(forKey: cacheKey)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            if let previousContacts { UserDefaults.standard.set(previousContacts, forKey: cacheKey) }
+            else { UserDefaults.standard.removeObject(forKey: cacheKey) }
+        }
+        let friends = try await StubFriendService().fetchFriends()
+        let friend = try XCTUnwrap(friends.first)
+        UserDefaults.standard.set(try JSONEncoder().encode([friend]), forKey: cacheKey)
+        let manager = CallManager(friendService: StubFriendService(),
+                                  contactImportService: environment.contactImportService,
+                                  importedContactsStore: UserDefaultsImportedContactsStore(defaults: defaults),
+                                  callService: StubCallService())
+        manager.dialedText = friend.handle
+        await manager.placeDialedCall(video: true)
+        XCTAssertEqual(manager.activeVoiceCall?.type, .video)
+        XCTAssertEqual(manager.activeVoiceCall?.displayName, friend.displayName)
+        manager.dismissCallSheet()
+        await manager.placeDialedCall(video: false)
+        XCTAssertEqual(manager.activeVoiceCall?.type, .voice)
+        manager.dismissCallSheet()
+        manager.dialedText = "+12025550148"
+        await manager.placeDialedCall(video: true)
+        XCTAssertNil(manager.activeVoiceCall)
+        XCTAssertNil(manager.externalCallConfirmation)
+        XCTAssertEqual(manager.alertMessage, "Video calls require a OneWay ID or OneWay number.")
+    }
+
     func testCaptureMetallicKeypad() throws {
         let environment = AppEnvironment.live
         let suite = "MetalKeypadCapture." + UUID().uuidString

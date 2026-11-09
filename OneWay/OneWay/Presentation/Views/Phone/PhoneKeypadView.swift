@@ -31,7 +31,7 @@ struct PhoneKeypadView: View {
                             columnSpacing: layout.columnSpacing
                         ) { appendDigit($0) }
                         .frame(height: layout.dialPadHeight)
-                        keypadCallButton(layout: layout)
+                        keypadCallButtons
                             .id("keypad.call")
                         chirpKeypadSwitcher(layout: layout)
                     }
@@ -210,12 +210,21 @@ struct PhoneKeypadView: View {
         }
     }
 
-    private func keypadCallButton(layout: KeypadLayout) -> some View {
-        Button { startCall(video: false) } label: {
-            HStack(spacing: 12) {
+    private var keypadCallButtons: some View {
+        HStack(spacing: 12) {
+            keypadCallButton(video: false)
+            keypadCallButton(video: true)
+        }
+    }
+
+    private func keypadCallButton(video: Bool) -> some View {
+        Button { startCall(video: video) } label: {
+            HStack(spacing: 8) {
                 if isStartingCall || manager.isStartingExternalPSTNCall { ProgressView().tint(.white) }
-                else { Image(systemName: "phone.fill") }
-                Text(isStartingCall || manager.isStartingExternalPSTNCall ? "Connecting…" : "Call")
+                else { Image(systemName: video ? "video.fill" : "phone.fill") }
+                Text(video ? "Video" : "Call")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
             .font(.system(.title2, design: .rounded, weight: .bold))
             .foregroundStyle(.white).frame(maxWidth: .infinity, minHeight: 56)
@@ -225,7 +234,9 @@ struct PhoneKeypadView: View {
         .buttonStyle(.plain)
         .disabled(isStartingCall || manager.isStartingExternalPSTNCall)
         .opacity(isStartingCall || manager.isStartingExternalPSTNCall ? 0.6 : 1)
-        .accessibilityLabel("Start audio call")
+        .accessibilityLabel(video ? "Start video call" : "Start audio call")
+        .accessibilityHint(video ? "Call a OneWay ID or OneWay number with video" : "")
+        .accessibilityIdentifier(video ? "keypad.videoCall" : "keypad.audioCall")
     }
 
     private func chirpKeypadSwitcher(layout: KeypadLayout) -> some View {
