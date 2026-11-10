@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { authMiddleware, type AuthenticatedRequest } from "../middleware/auth";
+import { cloudMediaRouter } from "./cloudMedia";
 import { buildPlatformReadinessPayload } from "../services/platformCapabilities";
 
 const privacySchema = z.record(z.union([z.string(), z.boolean(), z.number()]));
@@ -42,6 +43,7 @@ export function platformRouter({ prisma }: { prisma: PrismaClient }): express.Ro
   const router = express.Router();
 
   router.use(authMiddleware);
+  router.use("/cloud", cloudMediaRouter({ prisma }));
 
   router.get("/capabilities", (_req, res) => {
     res.json(buildPlatformReadinessPayload());

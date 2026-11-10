@@ -6,7 +6,7 @@ export interface ApnsTokenConfig {
 
 /**
  * Resolves APNs token authentication without ever logging key material.
- * Railway should use APNS_KEY_P8_BASE64; APNS_KEY_PATH remains supported for
+ * Hosted production should use APNS_KEY_P8_BASE64; APNS_KEY_PATH remains supported for
  * hosts that mount Apple's .p8 file directly.
  */
 export function apnsTokenConfigFromEnv(

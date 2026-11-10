@@ -18,6 +18,7 @@ const alertRegisterSchema = z.object({
   token: z.string().min(32).max(200).regex(/^[0-9a-fA-F]+$/),
   environment: z.enum(["sandbox", "production"]).optional().default("sandbox"),
   previewMode: z.enum(["sender_subject", "sender", "generic", "none"]).optional().default("sender_subject"),
+  soundEnabled: z.boolean().optional().default(true),
 });
 
 export function pushRouter(deps: PushRouterDeps): express.Router {
@@ -65,6 +66,7 @@ export function pushRouter(deps: PushRouterDeps): express.Router {
     if (!parsed.success) { res.status(400).json({ error: "invalid_body", issues: parsed.error.issues }); return; }
     await deps.alertTokens.set((req as AuthenticatedRequest).userId, {
       token: parsed.data.token, environment: parsed.data.environment, previewMode: parsed.data.previewMode,
+      soundEnabled: parsed.data.soundEnabled,
     });
     res.status(204).end();
   });

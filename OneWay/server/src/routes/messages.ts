@@ -1,3 +1,4 @@
+import type { EmailAlertPushService } from "../services/EmailAlertPushService";
 import express from "express";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -128,7 +129,7 @@ type StoredPayload = {
 
 const smsRateLimits = new Map<string, { minuteStart: number; minuteCount: number; hourStart: number; hourCount: number }>();
 
-export function messagesRouter(deps: { realtime?: MessageRealtimeServer } = {}): express.Router {
+export function messagesRouter(deps: { realtime?: MessageRealtimeServer; alerts?: EmailAlertPushService } = {}): express.Router {
   const router = express.Router();
 
   router.post("/external/twilio/status", twilioWebhookMiddleware, async (req, res) => {
@@ -166,6 +167,7 @@ export function messagesRouter(deps: { realtime?: MessageRealtimeServer } = {}):
     });
     if (inbound) {
       deps.realtime?.broadcastMessageCreated([inbound.ownerUserId], mapMessage(inbound.message));
+      void deps.alerts?.sendNewMessage({ userId: inbound.ownerUserId, conversationId: inbound.message.conversationId, messageId: inbound.message.id, sender: "", body: "" }).catch(() => logger.warn({}, "[messages] notification deferred"));
     }
 
     res.type("text/xml").send("<Response></Response>");
@@ -512,7 +514,7 @@ export function messagesRouter(deps: { realtime?: MessageRealtimeServer } = {}):
     if (!parsedConversation.success || !parsedBody.success) {
       res.status(400).json({
         error: "invalid_body",
-        issues: parsedConversation.success ? parsedBody.error?.issues : parsedConversation.error.issues,
+        issues: !parsedConversation.success ? parsedConversation.error.issues : !parsedBody.success ? parsedBody.error.issues : [],
       });
       return;
     }
@@ -630,6 +632,10 @@ export function messagesRouter(deps: { realtime?: MessageRealtimeServer } = {}):
       conversation.participants.map((participant) => participant.userId),
       mappedMessage
     );
+    for (const recipientId of recipientIds) {
+      void deps.alerts?.sendNewMessage({ userId: recipientId, conversationId: conversation.id, messageId: message.id, sender: "", body: "" })
+        .catch(() => logger.warn({}, "[messages] notification deferred"));
+    }
     res.status(201).json({ message: mappedMessage });
   });
 
@@ -797,6 +803,8 @@ async function findOrCreateDirectConversation(userId: string, participantUserId:
   return prisma.conversation.create({
     data: {
       type: "direct",
+      expirationMode: "after_read",
+      expirationDurationSeconds: 86400,
       participants: {
         create: [
           { userId, role: "member" },
