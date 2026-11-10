@@ -26,8 +26,14 @@ export function pushRouter(deps: PushRouterDeps): express.Router {
   router.use(authMiddleware);
   router.use(pushRegisterRateLimit());
 
+  const safe = (handler: express.RequestHandler): express.RequestHandler => (req, res, next) => {
+    Promise.resolve(handler(req, res, next)).catch(() => {
+      if (!res.headersSent) res.status(503).json({ error: "push_registration_unavailable" });
+    });
+  };
+
   // POST /api/push/register --------------------------------------------------
-  router.post("/register", async (req, res) => {
+  router.post("/register", safe(async (req, res) => {
     const userId = (req as AuthenticatedRequest).userId;
     const parsed = registerSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -50,18 +56,18 @@ export function pushRouter(deps: PushRouterDeps): express.Router {
       }
       res.status(500).json({ error: "internal_error" });
     }
-  });
+  }));
 
   // DELETE /api/push/register ------------------------------------------------
   // Sign-out path — drops whatever token is registered for the user.
-  router.delete("/register", async (req, res) => {
+  router.delete("/register", safe(async (req, res) => {
     const userId = (req as AuthenticatedRequest).userId;
     const record = await deps.tokens.get(userId);
     if (record) await deps.tokens.remove(record.voipToken);
     res.status(204).end();
-  });
+  }));
 
-  router.post("/alerts/register", async (req, res) => {
+  router.post("/alerts/register", safe(async (req, res) => {
     const parsed = alertRegisterSchema.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: "invalid_body", issues: parsed.error.issues }); return; }
     await deps.alertTokens.set((req as AuthenticatedRequest).userId, {
@@ -69,12 +75,12 @@ export function pushRouter(deps: PushRouterDeps): express.Router {
       soundEnabled: parsed.data.soundEnabled,
     });
     res.status(204).end();
-  });
+  }));
 
-  router.delete("/alerts/register/:token", async (req, res) => {
-    await deps.alertTokens.remove(req.params.token);
+  router.delete("/alerts/register/:token", safe(async (req, res) => {
+    await deps.alertTokens.remove(String(req.params.token), (req as AuthenticatedRequest).userId);
     res.status(204).end();
-  });
+  }));
 
   return router;
 }
