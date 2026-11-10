@@ -1645,4 +1645,3 @@ model SocialReport {
   @@unique([reporterId, postId])
   @@index([status, createdAt])
 }
-

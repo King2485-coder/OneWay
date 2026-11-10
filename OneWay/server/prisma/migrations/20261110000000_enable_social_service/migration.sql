@@ -75,4 +75,3 @@ CREATE INDEX IF NOT EXISTS "SocialReport_status_createdAt_idx" ON "SocialReport"
 
 -- CreateIndex
 CREATE UNIQUE INDEX IF NOT EXISTS "SocialReport_reporterId_postId_key" ON "SocialReport"("reporterId", "postId");
-
