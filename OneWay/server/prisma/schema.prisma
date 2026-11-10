@@ -58,6 +58,7 @@ model User {
   emailMailbox           EmailMailbox?
   alertPushTokens        AlertPushToken[]
   passwordResetTokens    PasswordResetToken[]
+  socialProfile          SocialProfile?
 }
 
 model PasswordResetToken {
@@ -1581,3 +1582,67 @@ model CommunityMessage {
   @@index([createdAt])
   @@index([senderId])
 }
+
+model SocialProfile {
+  userId       String   @id
+  handle       String   @unique
+  displayName  String
+  bio          String   @default("")
+  website      String   @default("")
+  discoverable Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  posts        SocialPost[]
+  followers    SocialFollow[] @relation("SocialFollowing")
+  following    SocialFollow[] @relation("SocialFollower")
+  blocksMade   SocialBlock[] @relation("SocialBlocker")
+  blocksReceived SocialBlock[] @relation("SocialBlocked")
+  reports      SocialReport[]
+}
+
+model SocialPost {
+  id        String   @id @default(uuid())
+  authorId  String
+  body      String
+  audience  String   @default("followers")
+  createdAt DateTime @default(now())
+  author    SocialProfile @relation(fields: [authorId], references: [userId], onDelete: Cascade)
+  reports   SocialReport[]
+  @@index([authorId, createdAt, id])
+  @@index([audience, createdAt, id])
+}
+
+model SocialFollow {
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+  follower    SocialProfile @relation("SocialFollower", fields: [followerId], references: [userId], onDelete: Cascade)
+  following   SocialProfile @relation("SocialFollowing", fields: [followingId], references: [userId], onDelete: Cascade)
+  @@id([followerId, followingId])
+  @@index([followingId])
+}
+
+model SocialBlock {
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+  blocker   SocialProfile @relation("SocialBlocker", fields: [blockerId], references: [userId], onDelete: Cascade)
+  blocked   SocialProfile @relation("SocialBlocked", fields: [blockedId], references: [userId], onDelete: Cascade)
+  @@id([blockerId, blockedId])
+  @@index([blockedId])
+}
+
+model SocialReport {
+  id         String   @id @default(uuid())
+  reporterId String
+  postId     String
+  reason     String
+  status     String   @default("pending")
+  createdAt  DateTime @default(now())
+  reporter   SocialProfile @relation(fields: [reporterId], references: [userId], onDelete: Cascade)
+  post       SocialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  @@unique([reporterId, postId])
+  @@index([status, createdAt])
+}
+
