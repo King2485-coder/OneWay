@@ -30,6 +30,28 @@ export function cloudMediaRouter(deps: { prisma: PrismaClient; storage?: ObjectS
   const uploading = new Set<string>();
   router.use(deps.authenticate ?? authMiddleware);
   router.use((_req, res, next) => { res.set("Cache-Control", "no-store"); next(); });
+  const mediaPrefix = (owner: string) => `private-media/${createHash("sha256").update(owner).digest("hex")}/`;
+  const metadata = (file: any) => ({ id: file.id, name: file.name, mimeType: file.mimeType, byteCount: Number(file.byteCount), storageKey: file.storageKey, encrypted: Boolean(file.encrypted), createdAt: new Date(file.createdAt).toISOString(), updatedAt: new Date(file.updatedAt).toISOString() });
+  router.get("/profile-photo", async (req, res) => {
+    const owner = (req as unknown as AuthenticatedRequest).userId;
+    try {
+      const rows = await deps.prisma.$queryRawUnsafe<any[]>(`SELECT f.* FROM "CloudFile" f JOIN "PrivacySetting" p ON p."value" = f."id" AND p."userId" = f."ownerId" WHERE p."userId" = ? AND p."key" = 'profile.cloudPhoto' LIMIT 1`, owner);
+      const file = rows[0];
+      res.json({ file: file?.storageKey.startsWith(mediaPrefix(owner)) && file?.mimeType?.startsWith("image/") ? metadata(file) : null });
+    } catch { res.status(503).json({ error: "cloud_profile_unavailable" }); }
+  });
+  router.post("/profile-photo", async (req, res) => {
+    const owner = (req as unknown as AuthenticatedRequest).userId;
+    const id = req.body?.fileId;
+    if (typeof id !== "string" || !/^[0-9a-f-]{36}$/i.test(id)) { res.status(400).json({ error: "invalid_profile_photo" }); return; }
+    try {
+      const rows = await deps.prisma.$queryRawUnsafe<any[]>(`SELECT * FROM "CloudFile" WHERE "id" = ? AND "ownerId" = ? LIMIT 1`, id, owner);
+      const file = rows[0];
+      if (!file?.storageKey.startsWith(mediaPrefix(owner)) || !file?.mimeType?.startsWith("image/")) { res.status(404).end(); return; }
+      await deps.prisma.$executeRawUnsafe(`INSERT INTO "PrivacySetting" ("id", "userId", "key", "value", "updatedAt") VALUES (?, ?, 'profile.cloudPhoto', ?, CURRENT_TIMESTAMP) ON CONFLICT("userId", "key") DO UPDATE SET "value" = excluded."value", "updatedAt" = CURRENT_TIMESTAMP`, randomUUID(), owner, id);
+      res.status(204).end();
+    } catch { res.status(503).json({ error: "cloud_profile_unavailable" }); }
+  });
   router.post("/files/upload", (req, res, next) => {
     if (!storage || !isFieldEncryptionEnabled()) { res.status(503).json({ error: "private_cloud_not_configured" }); return; }
     const owner = (req as unknown as AuthenticatedRequest).userId;
