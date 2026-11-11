@@ -78,6 +78,7 @@ test("handles are unique and validation rejects invalid URLs and oversized posts
 let privatePost: string, publicPost: string;
 test("posts default to followers; public posting requires a discoverable profile", async () => {
   const created = await call(alice, "/posts", "POST", { body: "For followers" });
+  assert.equal((await fetch(base + "/feed", {headers: {"x-test-user": alice}})).headers.get("cache-control"), "private, no-store");
   assert.equal(created.status, 201); assert.equal(created.data.post.audience, "followers"); privatePost = created.data.post.id;
   const payload = { body: "Public update", audience: "public", clientId: randomUUID() };
   const published = await call(alice, "/posts", "POST", payload); publicPost = published.data.post.id;
@@ -219,4 +220,56 @@ test("profile accents and owned publication pins persist without exposing drafts
   assert.deepEqual((await call(owner, "/pin-sites")).data.sites, []);
   await call(owner, "/me", "PUT", {...ownProfile, pinnedSiteId: null});
   assert.equal((await call(owner, "/me")).data.profile.pinnedWebsite, null);
+});
+
+test("authors can edit their own posts with audience choices, preserving ownership and stale-write protection", async () => {
+  const owner = randomUUID(), viewer = randomUUID();
+  for (const id of [owner, viewer]) await prisma.user.create({data: {id, displayName: "Edit test", email: `${id}@example.invalid`, passwordHash: "test"}});
+  await call(owner, "/me", "PUT", profile("edit_owner")); await call(viewer, "/me", "PUT", profile("edit_viewer"));
+  const created = await call(owner, "/posts", "POST", {body: "Community first", audience: "public"});
+  const id = created.data.post.id;
+  assert.ok((await call(viewer, "/feed?mode=discover")).data.posts.some((p: any) => p.id === id)); // No follow needed.
+  const changes = {body: "Updated community post", audience: "public", expectedBody: "Community first", expectedAudience: "public"};
+  assert.equal((await call(viewer, `/posts/${id}`, "PATCH", changes)).status, 404);
+  assert.equal((await call(owner, `/posts/${id}`, "PATCH", changes)).status, 200);
+  assert.equal((await call(owner, `/posts/${id}`, "PATCH", changes)).status, 200); // Retry is safe.
+  assert.equal((await call(owner, `/posts/${id}`, "PATCH", {...changes, body: "Stale overwrite"})).status, 409);
+  assert.equal((await call(owner, `/posts/${id}`, "PATCH", {...changes, body: "", expectedBody: changes.body})).status, 400);
+  assert.equal((await call(owner, `/posts/${id}`, "PATCH", {...changes, body: "Only followers", audience: "followers", expectedBody: changes.body})).status, 200);
+  assert.equal((await call(viewer, "/feed?mode=discover")).data.posts.some((p: any) => p.id === id), false);
+  assert.equal((await call(viewer, "/profiles/edit_owner")).data.posts.some((p: any) => p.id === id), false);
+  await call(viewer, `/following/${owner}`, "PUT");
+  assert.equal((await call(viewer, "/feed?mode=following")).data.posts.find((p: any) => p.id === id).body, "Only followers");
+  const privatePost = await call(owner, "/posts", "POST", {body: "Legacy private"});
+  assert.equal(privatePost.data.post.audience, "followers"); // Old clients never silently publish private posts.
+  await call(owner, "/me", "PUT", profile("edit_owner", false));
+  assert.equal((await call(owner, `/posts/${id}`, "PATCH", {body: "Publish hidden profile", audience: "public", expectedBody: "Only followers", expectedAudience: "followers"})).status, 409);
+});
+
+test("every feed and profile post carries the author's current opaque avatar version and public identity", async () => {
+  const owner = randomUUID(), viewer = randomUUID();
+  for (const id of [owner, viewer]) await prisma.user.create({data: {id, displayName: "Avatar test", email: `${id}@example.invalid`, passwordHash: "test"}});
+  await call(owner, "/me", "PUT", profile("photo_owner")); await call(viewer, "/me", "PUT", profile("photo_viewer"));
+  async function upload() {
+    const form = new FormData(); form.set("file", new Blob([Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+yY7sAAAAASUVORK5CYII=", "base64")], {type: "image/png"}), "avatar.png");
+    const res = await fetch(base.replace("/api/social", "/api/platform/cloud/files/upload"), {method: "POST", headers: {"x-test-user": owner}, body: form});
+    assert.equal(res.status, 201); return (await res.json() as any).file;
+  }
+  const first = await upload(); const p = {...profile("photo_owner"), avatarFileId: first.id};
+  const saved = (await call(owner, "/me", "PUT", p)).data.profile;
+  const created = await call(owner, "/posts", "POST", {body: "Photo on every post", audience: "public"});
+  assert.equal(created.data.post.author.avatarVersion, saved.avatarVersion);
+  const id = created.data.post.id;
+  const feedAuthor = (await call(viewer, "/feed?mode=discover")).data.posts.find((p: any) => p.id === id).author;
+  assert.equal(feedAuthor.avatarVersion, saved.avatarVersion);
+  assert.doesNotMatch(JSON.stringify(feedAuthor), new RegExp(first.id + "|private-media/|storageKey|passwordHash"));
+  const second = await upload();
+  const changed = (await call(owner, "/me", "PUT", {...p, displayName: "Updated public name", avatarFileId: second.id})).data.profile;
+  assert.notEqual(changed.avatarVersion, saved.avatarVersion);
+  const author = (await call(viewer, "/profiles/photo_owner")).data.posts.find((p: any) => p.id === id).author;
+  assert.equal(author.avatarVersion, changed.avatarVersion); assert.equal(author.displayName, "Updated public name");
+  await call(owner, "/me", "PUT", {...p, avatarFileId: null});
+  assert.equal((await call(viewer, "/feed?mode=discover")).data.posts.find((p: any) => p.id === id).author.avatarVersion, null);
+  await call(viewer, `/blocks/${owner}`, "PUT");
+  assert.equal((await call(viewer, "/feed?mode=discover")).data.posts.some((p: any) => p.id === id), false);
 });

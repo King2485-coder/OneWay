@@ -25,6 +25,7 @@ const profileSchema = z.object({
   coverFileId: z.string().uuid().nullable().optional(),
 }).strict();
 const postSchema = z.object({ body: z.string().trim().min(1).max(2000), audience: z.enum(["public", "followers"]).default("followers"), clientId: z.string().uuid().optional() }).strict();
+const editPostSchema = z.object({body: z.string().trim().min(1).max(2000), audience: z.enum(["public", "followers"]).optional(), expectedBody: z.string().min(1).max(2000), expectedAudience: z.enum(["public", "followers"])}).strict();
 const reportSchema = z.object({ reason: z.enum(["spam", "harassment", "harmful_content", "other"]) }).strict();
 const active = { accountStatus: "active", publicProfileHiddenAt: null };
 const identifier = z.string().min(1).max(64);
@@ -46,8 +47,9 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
     return f && f.encrypted && f.storageKey.startsWith(prefix(owner)) && ["image/jpeg", "image/png"].includes(f.mimeType) && Number(f.byteCount) <= 256 * 1024 ? f : null;
   }
   const enabled = deps.enabled ?? (() => process.env.ONEWAY_SOCIAL_ENABLED === "true");
-  router.get("/status", (_req, res) => { res.json({ enabled: enabled(), version: 3, profileMedia: mediaReady(), profileCustomization: true }); });
+  router.get("/status", (_req, res) => { res.json({ enabled: enabled(), version: 4, postEditing: true, postAvatars: true, profileMedia: mediaReady(), profileCustomization: true }); });
   router.use((req, res, next) => { if (!enabled()) { res.status(503).json({ error: "social_not_enabled" }); return; } next(); });
+  router.use((_req, res, next) => { res.set("Cache-Control", "private, no-store"); next(); });
   router.use(deps.authenticate);
   const uid = (req: express.Request) => (req as express.Request & { userId: string }).userId;
   const wrap = (action: (req: express.Request, res: express.Response) => Promise<unknown>): RequestHandler => (req, res, next) => {
@@ -107,6 +109,10 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
     const pinnedWebsite = look.pinnedSiteId ? await pinnableSite(profile.userId, look.pinnedSiteId) : null;
     return { ...profile, accent: ["violet", "blue", "teal", "rose", "amber"].includes(look.accent ?? "") ? look.accent : "violet", pinnedWebsite, avatarVersion: avatar ? version(avatar) : null, coverVersion: cover ? version(cover) : null,
       followers, following, postCount: posts, isFollowing: Boolean(followed), isMe: profile.userId === viewer };
+  }
+  async function postDTO<T extends {author: {userId: string; handle: string; displayName: string}}>(post: T) {
+    const avatar = await mediaFile(post.author.userId, "avatar").catch(() => null);
+    return {...post, author: {...post.author, avatarVersion: avatar ? version(avatar) : null}};
   }
   const authorSelect = { userId: true, handle: true, displayName: true } as const;
   router.get("/me", wrap(async (req, res) => {
@@ -173,7 +179,7 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
     const profile = await prisma.socialProfile.findFirst({ where: { AND: [await visibleProfiles(uid(req)), { handle }] } });
     if (!profile) return res.status(404).json({ error: "profile_not_found" });
     const posts = await prisma.socialPost.findMany({ where: { AND: [await visiblePosts(uid(req)), { authorId: profile.userId }] }, include: { author: { select: authorSelect } }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 20 });
-    res.json({ profile: await profileDTO(profile, uid(req)), posts });
+    res.json({ profile: await profileDTO(profile, uid(req)), posts: await Promise.all(posts.map(postDTO)) });
   }));
   router.get("/feed", wrap(async (req, res) => {
     const page = pageSchema.parse(req.query);
@@ -183,7 +189,7 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
     const cursor: Prisma.SocialPostWhereInput = page.before ? { OR: [{ createdAt: { lt: new Date(page.before) } }, { createdAt: new Date(page.before), id: { lt: page.beforeId } }] } : {};
     const posts = await prisma.socialPost.findMany({ where: { AND: [await visiblePosts(uid(req)), scope, cursor] }, include: { author: { select: authorSelect } }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: page.limit + 1 });
     const hasMore = posts.length > page.limit; const items = posts.slice(0, page.limit); const last = items.at(-1);
-    res.json({ posts: items, next: hasMore && last ? { before: last.createdAt.toISOString(), beforeId: last.id } : null });
+    res.json({ posts: await Promise.all(items.map(postDTO)), next: hasMore && last ? { before: last.createdAt.toISOString(), beforeId: last.id } : null });
   }));
   router.post("/posts", writes, wrap(async (req, res) => {
     const data = postSchema.parse(req.body);
@@ -194,11 +200,25 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
       const previous = await prisma.socialPost.findUnique({ where: { id: data.clientId }, include: { author: { select: authorSelect } } });
       if (previous) {
         if (previous.authorId !== uid(req) || previous.body !== data.body || previous.audience !== data.audience) return res.status(409).json({ error: "post_request_conflict" });
-        return res.json({ post: previous });
+        return res.json({ post: await postDTO(previous) });
       }
     }
     const post = await prisma.socialPost.create({ data: { id: data.clientId, body: data.body, audience: data.audience, authorId: uid(req) }, include: { author: { select: authorSelect } } });
-    res.status(201).json({ post });
+    res.status(201).json({ post: await postDTO(post) });
+  }));
+  router.patch("/posts/:id", writes, wrap(async (req, res) => {
+    const id = identifier.parse(req.params.id), data = editPostSchema.parse(req.body);
+    const current = await prisma.socialPost.findFirst({where: {id, authorId: uid(req)}, include: {author: {select: authorSelect}}});
+    if (!current) return res.status(404).json({error: "post_not_found"});
+    const audience = data.audience ?? current.audience;
+    const profile = await prisma.socialProfile.findUnique({where: {userId: uid(req)}});
+    if (audience === "public" && !profile?.discoverable) return res.status(409).json({error: "public_profile_required"});
+    if (current.body === data.body && current.audience === audience) return res.json({post: await postDTO(current)});
+    const saved = await prisma.socialPost.updateMany({where: {id, authorId: uid(req), body: data.expectedBody, audience: data.expectedAudience}, data: {body: data.body, audience}});
+    if (!saved.count) return res.status(409).json({error: "post_changed", message: "This post changed. Refresh it before editing again."});
+    const post = await prisma.socialPost.findUnique({where: {id}, include: {author: {select: authorSelect}}});
+    if (!post) return res.status(404).json({error: "post_not_found"});
+    res.json({post: await postDTO(post)});
   }));
   router.delete("/posts/:id", writes, wrap(async (req, res) => {
     const result = await prisma.socialPost.deleteMany({ where: { id: identifier.parse(req.params.id), authorId: uid(req) } });
