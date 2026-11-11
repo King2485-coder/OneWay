@@ -189,3 +189,34 @@ test("the additive migration applies and deleting an account cascades social dat
     assert.equal(await db.socialProfile.count(), 0); assert.equal(await db.socialPost.count(), 0);
   } finally { await db.$disconnect(); }
 });
+
+test("profile accents and owned publication pins persist without exposing drafts", async () => {
+  const owner = randomUUID(), viewer = randomUUID();
+  for (const id of [owner, viewer]) await prisma.user.create({data: {id, displayName: "Pin test", email: `${id}@example.invalid`, passwordHash: "test"}});
+  const ownProfile = profile("pin_owner");
+  await call(owner, "/me", "PUT", ownProfile);
+  await call(viewer, "/me", "PUT", profile("pin_viewer"));
+  async function makeSite(userId: string, slug: string, published: boolean) {
+    const site = await prisma.site.create({data: {userId, domain: slug, slug, title: "My creative space", status: published ? "PUBLISHED" : "DRAFT", publishedAt: published ? new Date() : null}});
+    if (published) {
+      const pub = await prisma.sitePublication.create({data: {siteId: site.id, versionNumber: 1, status: "ACTIVE", publishedBy: userId, contentManifest: "{}", assetManifest: "[]", publicAddress: `oneway://${slug}`}});
+      await prisma.site.update({where: {id: site.id}, data: {activePublicationId: pub.id}});
+    }
+    return site;
+  }
+  const own = await makeSite(owner, "pin-own", true), draft = await makeSite(owner, "pin-draft", false), other = await makeSite(viewer, "pin-other", true);
+  assert.deepEqual((await call(owner, "/pin-sites")).data.sites.map((s: any) => s.id), [own.id]);
+  assert.equal((await call(owner, "/me", "PUT", {...ownProfile, accent: "custom-css"})).status, 400);
+  for (const id of [draft.id, other.id, randomUUID()]) assert.equal((await call(owner, "/me", "PUT", {...ownProfile, pinnedSiteId: id})).status, 400);
+  const saved = await call(owner, "/me", "PUT", {...ownProfile, accent: "amber", pinnedSiteId: own.id});
+  assert.equal(saved.status, 200); assert.equal(saved.data.profile.accent, "amber"); assert.equal(saved.data.profile.pinnedWebsite.address, "oneway://pin-own");
+  assert.equal((await call(viewer, "/profiles/pin_owner")).data.profile.pinnedWebsite.id, own.id);
+  await call(owner, "/me", "PUT", ownProfile);
+  assert.equal((await call(owner, "/me")).data.profile.accent, "amber");
+  assert.equal((await call(owner, "/me")).data.profile.pinnedWebsite.id, own.id);
+  await prisma.site.update({where: {id: own.id}, data: {status: "UNPUBLISHED"}});
+  assert.equal((await call(viewer, "/profiles/pin_owner")).data.profile.pinnedWebsite, null);
+  assert.deepEqual((await call(owner, "/pin-sites")).data.sites, []);
+  await call(owner, "/me", "PUT", {...ownProfile, pinnedSiteId: null});
+  assert.equal((await call(owner, "/me")).data.profile.pinnedWebsite, null);
+});

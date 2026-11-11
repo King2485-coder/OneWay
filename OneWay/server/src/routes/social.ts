@@ -19,6 +19,8 @@ const profileSchema = z.object({
     catch { return false; }
   }),
   discoverable: z.boolean().default(false),
+  accent: z.enum(["violet", "blue", "teal", "rose", "amber"]).optional(),
+  pinnedSiteId: z.string().uuid().nullable().optional(),
   avatarFileId: z.string().uuid().nullable().optional(),
   coverFileId: z.string().uuid().nullable().optional(),
 }).strict();
@@ -44,7 +46,7 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
     return f && f.encrypted && f.storageKey.startsWith(prefix(owner)) && ["image/jpeg", "image/png"].includes(f.mimeType) && Number(f.byteCount) <= 256 * 1024 ? f : null;
   }
   const enabled = deps.enabled ?? (() => process.env.ONEWAY_SOCIAL_ENABLED === "true");
-  router.get("/status", (_req, res) => { res.json({ enabled: enabled(), version: 2, profileMedia: mediaReady() }); });
+  router.get("/status", (_req, res) => { res.json({ enabled: enabled(), version: 3, profileMedia: mediaReady(), profileCustomization: true }); });
   router.use((req, res, next) => { if (!enabled()) { res.status(503).json({ error: "social_not_enabled" }); return; } next(); });
   router.use(deps.authenticate);
   const uid = (req: express.Request) => (req as express.Request & { userId: string }).userId;
@@ -75,6 +77,23 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
     return { author: await visibleProfiles(viewer), OR: [{ authorId: viewer }, { audience: "public" },
       { audience: "followers", author: { followers: { some: { followerId: viewer } } } }] };
   }
+  const lookKey = "social.profile.look";
+  async function profileLook(owner: string) {
+    const rows = await prisma.$queryRawUnsafe<{value: string}[]>(`SELECT "value" FROM "PrivacySetting" WHERE "userId" = ? AND "key" = ? LIMIT 1`, owner, lookKey);
+    try { return JSON.parse(rows[0]?.value ?? "{}") as {accent?: string; pinnedSiteId?: string | null}; } catch { return {}; }
+  }
+  // Only a current public publication owned by this profile may be featured.
+  async function pinnableSite(owner: string, id: string) {
+    const site = await prisma.site.findFirst({where: {id, userId: owner, status: "PUBLISHED", visibility: "PUBLIC", publishedAt: {not: null}, activePublicationId: {not: null}}});
+    if (!site || !site.slug || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(site.slug)) return null;
+    const publication = await prisma.sitePublication.findFirst({where: {id: site.activePublicationId!, siteId: site.id, status: "ACTIVE"}});
+    if (!publication) return null;
+    return {id: site.id, title: site.title || site.slug, address: `oneway://${site.slug}`};
+  }
+  router.get("/pin-sites", wrap(async (req, res) => {
+    const sites = await prisma.site.findMany({where: {userId: uid(req), status: "PUBLISHED", visibility: "PUBLIC"}, orderBy: {updatedAt: "desc"}, take: 100});
+    res.set("Cache-Control", "private, no-store").json({sites: (await Promise.all(sites.map(site => pinnableSite(uid(req), site.id)))).filter(Boolean)});
+  }));
   async function profileDTO(profile: { userId: string; handle: string; displayName: string; bio: string; website: string; discoverable: boolean }, viewer: string) {
     const [followers, following, posts, followed] = await Promise.all([
       prisma.socialFollow.count({ where: { followingId: profile.userId, follower: { user: active } } }),
@@ -84,7 +103,9 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
     ]);
     // Return only opaque versions. Private cloud IDs/keys never enter the public DTO.
     const [avatar, cover] = await Promise.all([mediaFile(profile.userId, "avatar"), mediaFile(profile.userId, "cover")]).catch(() => [null, null]);
-    return { ...profile, avatarVersion: avatar ? version(avatar) : null, coverVersion: cover ? version(cover) : null,
+    const look = await profileLook(profile.userId);
+    const pinnedWebsite = look.pinnedSiteId ? await pinnableSite(profile.userId, look.pinnedSiteId) : null;
+    return { ...profile, accent: ["violet", "blue", "teal", "rose", "amber"].includes(look.accent ?? "") ? look.accent : "violet", pinnedWebsite, avatarVersion: avatar ? version(avatar) : null, coverVersion: cover ? version(cover) : null,
       followers, following, postCount: posts, isFollowing: Boolean(followed), isMe: profile.userId === viewer };
   }
   const authorSelect = { userId: true, handle: true, displayName: true } as const;
@@ -93,7 +114,7 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
     res.json({ profile: profile ? await profileDTO(profile, uid(req)) : null });
   }));
   router.put("/me", writes, wrap(async (req, res) => {
-    const { avatarFileId, coverFileId, ...data } = profileSchema.parse(req.body);
+    const { avatarFileId, coverFileId, accent, pinnedSiteId, ...data } = profileSchema.parse(req.body);
     const updates = [["avatar", avatarFileId], ["cover", coverFileId]] as const;
     if (updates.some(([, id]) => id !== undefined) && !mediaReady()) return res.status(503).json({ error: "profile_media_unavailable" });
     // A client uploads a fresh, reduced JPEG copy; linking cannot claim another owner's object.
@@ -103,12 +124,19 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
       if (!file || !file.encrypted || !file.storageKey.startsWith(prefix(uid(req))) || !["image/jpeg", "image/png"].includes(file.mimeType) || Number(file.byteCount) > 256 * 1024) return res.status(400).json({ error: "invalid_profile_media" });
     }
     if (["admin", "support", "oneway", "security", "official"].includes(data.handle)) return res.status(409).json({ error: "handle_unavailable" });
+    if (pinnedSiteId && !await pinnableSite(uid(req), pinnedSiteId)) return res.status(400).json({error: "site_not_public_or_owned"});
     const profile = await prisma.$transaction(async tx => {
       const saved = await tx.socialProfile.upsert({ where: { userId: uid(req) }, create: { ...data, userId: uid(req) }, update: data });
       for (const [kind, id] of updates) {
         if (id === undefined) continue; // Older clients preserve photos.
         if (id === null) await tx.$executeRawUnsafe(`DELETE FROM "PrivacySetting" WHERE "userId" = ? AND "key" = ?`, uid(req), mediaKeys[kind]);
         else await tx.$executeRawUnsafe(`INSERT INTO "PrivacySetting" ("id", "userId", "key", "value", "updatedAt") VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT("userId", "key") DO UPDATE SET "value" = excluded."value", "updatedAt" = CURRENT_TIMESTAMP`, randomUUID(), uid(req), mediaKeys[kind], id);
+      }
+      if (accent !== undefined || pinnedSiteId !== undefined) {
+        const rows = await tx.$queryRawUnsafe<{value: string}[]>(`SELECT "value" FROM "PrivacySetting" WHERE "userId" = ? AND "key" = ? LIMIT 1`, uid(req), lookKey);
+        let previous: Record<string, unknown> = {}; try { previous = JSON.parse(rows[0]?.value ?? "{}"); } catch {}
+        const value = JSON.stringify({...previous, ...(accent !== undefined ? {accent} : {}), ...(pinnedSiteId !== undefined ? {pinnedSiteId} : {})});
+        await tx.$executeRawUnsafe(`INSERT INTO "PrivacySetting" ("id", "userId", "key", "value", "updatedAt") VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT("userId", "key") DO UPDATE SET "value" = excluded."value", "updatedAt" = CURRENT_TIMESTAMP`, randomUUID(), uid(req), lookKey, value);
       }
       return saved;
     });
