@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { before, after, test } from "node:test";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { Readable } from "node:stream";
+import { cloudMediaRouter } from "../src/routes/cloudMedia";
+import { randomBytes, randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -9,6 +11,14 @@ import express from "express";
 import { PrismaClient } from "@prisma/client";
 import { socialRouter } from "../src/routes/social";
 
+process.env.FIELD_ENCRYPTION_ENABLED = "true";
+process.env.FIELD_ENCRYPTION_MASTER_KEY_BASE64 = randomBytes(32).toString("base64");
+const objects = new Map<string, Buffer>();
+const storage = {
+  put: async (key: string, bytes: Buffer) => { objects.set(key, bytes); return { key, bytes: bytes.length }; },
+  read: async (key: string) => objects.has(key) ? { stream: Readable.from(objects.get(key)!), bytes: objects.get(key)!.length, contentType: "application/octet-stream" } : null,
+  delete: async (key: string) => { objects.delete(key); },
+} as any;
 const directory = mkdtempSync(join(tmpdir(), "oneway-social-test-"));
 const database = `file:${join(directory, "social.db")}`;
 const prisma = new PrismaClient({ datasources: { db: { url: database } } });
@@ -23,8 +33,12 @@ before(async () => {
     { cwd: resolve("."), env: { ...process.env, DATABASE_URL: database }, encoding: "utf8" });
   assert.equal(setup.status, 0, setup.stderr);
   for (const id of [alice, bob, charlie]) await prisma.user.create({ data: { id, displayName: "PRIVATE NAME", email: `${id}@private.test`, passwordHash: "secret-hash" } });
+  await prisma.$executeRawUnsafe('CREATE TABLE "CloudFile" ("id" TEXT PRIMARY KEY, "ownerId" TEXT, "name" TEXT, "mimeType" TEXT, "byteCount" INTEGER, "storageKey" TEXT, "encrypted" BOOLEAN, "createdAt" DATETIME, "updatedAt" DATETIME)');
+  await prisma.$executeRawUnsafe('CREATE TABLE "PrivacySetting" ("id" TEXT PRIMARY KEY, "userId" TEXT, "key" TEXT, "value" TEXT, "updatedAt" DATETIME NOT NULL, UNIQUE("userId","key"))');
   const app = express(); app.use(express.json());
-  app.use("/api/social", socialRouter({ prisma, enabled: () => enabled, authenticate: (req, res, next) => {
+  const authenticate: express.RequestHandler = (req, res, next) => { const id = req.header("x-test-user"); if (!id) { res.status(401).end(); return; } (req as any).userId = id; next(); };
+  app.use("/api/platform/cloud", cloudMediaRouter({ prisma, storage, authenticate }));
+  app.use("/api/social", socialRouter({ prisma, storage, enabled: () => enabled, authenticate: (req, res, next) => {
     const id = req.header("x-test-user"); if (!id) { res.status(401).end(); return; }
     (req as any).userId = id; next();
   } }));
@@ -113,6 +127,43 @@ test("stable cursor pagination neither repeats nor skips equal-timestamp posts",
   assert.equal((await call(bob, "/feed?beforeId=missing")).status, 400);
   assert.equal((await call(bob, "/feed?limit=9999")).status, 400);
 });
+test("profile media publishes only a selected copy and respects visibility, blocks, removal and ownership", async () => {
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+yY7sAAAAASUVORK5CYII=", "base64");
+  async function upload(user: string, name: string) {
+    const form = new FormData(); form.set("file", new Blob([png], { type: "image/png" }), name);
+    const response = await fetch(base.replace("/api/social", "/api/platform/cloud/files/upload"), { method: "POST", headers: { "x-test-user": user }, body: form });
+    assert.equal(response.status, 201); return (await response.json() as any).file;
+  }
+  const original = await upload(alice, "private-original.png");
+  const copy = await upload(alice, "selected-social-copy.png");
+  const other = await upload(bob, "other-owner.png");
+  assert.equal((await call(alice, "/me", "PUT", { ...profile("alice"), avatarFileId: other.id })).status, 400);
+  assert.equal((await call(alice, "/me", "PUT", { ...profile("alice"), avatarFileId: copy.id, coverFileId: copy.id })).status, 200);
+  let own = (await call(alice, "/me")).data.profile;
+  assert.ok(own.avatarVersion && own.coverVersion);
+  assert.doesNotMatch(JSON.stringify(own), new RegExp(copy.id + "|private-media/|storageKey|ownerId"));
+  const route = `/profiles/alice/media/avatar?v=${own.avatarVersion}`;
+  const read = async (user: string | null, path = route) => fetch(base + path, { headers: user ? { "x-test-user": user } : {} });
+  assert.equal((await read(null)).status, 401);
+  let fetched = await read(bob); assert.equal(fetched.status, 200); assert.deepEqual(Buffer.from(await fetched.arrayBuffer()), png);
+  assert.equal(fetched.headers.get("cache-control"), "private, no-store");
+  assert.equal((await read(bob, route.replace(own.avatarVersion, "stale-version"))).status, 404);
+  const privatePath = base.replace("/api/social", `/api/platform/cloud/files/${original.id}/content`);
+  assert.equal((await fetch(privatePath, { headers: { "x-test-user": bob } })).status, 404);
+  assert.equal((await fetch(privatePath, { headers: { "x-test-user": alice } })).status, 200);
+  // A text-only update from an older client preserves the image link.
+  await call(alice, "/me", "PUT", profile("alice", false));
+  assert.equal((await call(alice, "/me")).data.profile.avatarVersion, own.avatarVersion);
+  assert.equal((await read(bob)).status, 404); assert.equal((await read(alice)).status, 200);
+  await call(alice, "/me", "PUT", profile("alice", true));
+  await call(bob, `/blocks/${alice}`, "PUT"); assert.equal((await read(bob)).status, 404);
+  await call(bob, `/blocks/${alice}`, "DELETE"); assert.equal((await read(bob)).status, 200);
+  await call(alice, "/me", "PUT", { ...profile("alice"), avatarFileId: null, coverFileId: null });
+  assert.equal((await read(alice)).status, 404);
+  // Removing the public copy never deletes the user's private original.
+  assert.equal((await fetch(privatePath, { headers: { "x-test-user": alice } })).status, 200);
+});
+
 test("inactive accounts disappear and cannot read or publish", async () => {
   await prisma.user.update({ where: { id: alice }, data: { accountStatus: "deletion_pending" } });
   assert.equal((await call(bob, "/profiles/alice")).status, 404);

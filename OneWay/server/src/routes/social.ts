@@ -2,6 +2,12 @@ import express, { type RequestHandler } from "express";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import rateLimit from "express-rate-limit";
+import { createHash, randomUUID } from "node:crypto";
+import type { ObjectStorage } from "../lib/storage/ObjectStorage";
+import { LocalObjectStorage } from "../lib/storage/LocalObjectStorage";
+import { S3ObjectStorage } from "../lib/storage/S3ObjectStorage";
+import { decryptString, isFieldEncryptionEnabled } from "../services/privacy/EncryptionService";
+import { validCloudMedia } from "./cloudMedia";
 
 const profileSchema = z.object({
   handle: z.string().trim().toLowerCase().regex(/^[a-z][a-z0-9_]{2,29}$/),
@@ -13,6 +19,8 @@ const profileSchema = z.object({
     catch { return false; }
   }),
   discoverable: z.boolean().default(false),
+  avatarFileId: z.string().uuid().nullable().optional(),
+  coverFileId: z.string().uuid().nullable().optional(),
 }).strict();
 const postSchema = z.object({ body: z.string().trim().min(1).max(2000), audience: z.enum(["public", "followers"]).default("followers"), clientId: z.string().uuid().optional() }).strict();
 const reportSchema = z.object({ reason: z.enum(["spam", "harassment", "harmful_content", "other"]) }).strict();
@@ -22,11 +30,21 @@ const pageSchema = z.object({ limit: z.coerce.number().int().min(1).max(50).defa
   .refine(v => Boolean(v.before) === Boolean(v.beforeId), "A cursor needs both before and beforeId");
 
 /** Shared social API. Public posts are server-readable; this does not reuse DM storage. */
-export function socialRouter(deps: { prisma: PrismaClient; authenticate: RequestHandler; enabled?: () => boolean }) {
+export function socialRouter(deps: { prisma: PrismaClient; authenticate: RequestHandler; enabled?: () => boolean; storage?: ObjectStorage | null }) {
   const { prisma } = deps;
   const router = express.Router();
+  const storage = deps.storage === undefined ? (process.env.ONEWAY_PRIVATE_CLOUD_DIR ? new LocalObjectStorage({ root: process.env.ONEWAY_PRIVATE_CLOUD_DIR }) : S3ObjectStorage.fromEnv()) : deps.storage;
+  const mediaReady = () => Boolean(storage) && isFieldEncryptionEnabled();
+  const mediaKeys = { avatar: "social.profile.avatar", cover: "social.profile.cover" } as const;
+  const prefix = (owner: string) => `private-media/${createHash("sha256").update(owner).digest("hex")}/`;
+  const version = (file: { id: string; updatedAt: unknown }) => createHash("sha256").update(file.id + String(file.updatedAt)).digest("hex").slice(0, 24);
+  async function mediaFile(owner: string, kind: keyof typeof mediaKeys) {
+    const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT f.* FROM "CloudFile" f JOIN "PrivacySetting" p ON p."userId" = f."ownerId" AND p."value" = f."id" WHERE p."userId" = ? AND p."key" = ? LIMIT 1`, owner, mediaKeys[kind]);
+    const f = rows[0];
+    return f && f.encrypted && f.storageKey.startsWith(prefix(owner)) && ["image/jpeg", "image/png"].includes(f.mimeType) && Number(f.byteCount) <= 256 * 1024 ? f : null;
+  }
   const enabled = deps.enabled ?? (() => process.env.ONEWAY_SOCIAL_ENABLED === "true");
-  router.get("/status", (_req, res) => { res.json({ enabled: enabled(), version: 1 }); });
+  router.get("/status", (_req, res) => { res.json({ enabled: enabled(), version: 2, profileMedia: mediaReady() }); });
   router.use((req, res, next) => { if (!enabled()) { res.status(503).json({ error: "social_not_enabled" }); return; } next(); });
   router.use(deps.authenticate);
   const uid = (req: express.Request) => (req as express.Request & { userId: string }).userId;
@@ -64,7 +82,10 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
       prisma.socialPost.count({ where: { AND: [await visiblePosts(viewer), { authorId: profile.userId }] } }),
       prisma.socialFollow.findUnique({ where: { followerId_followingId: { followerId: viewer, followingId: profile.userId } } }),
     ]);
-    return { ...profile, followers, following, postCount: posts, isFollowing: Boolean(followed), isMe: profile.userId === viewer };
+    // Return only opaque versions. Private cloud IDs/keys never enter the public DTO.
+    const [avatar, cover] = await Promise.all([mediaFile(profile.userId, "avatar"), mediaFile(profile.userId, "cover")]).catch(() => [null, null]);
+    return { ...profile, avatarVersion: avatar ? version(avatar) : null, coverVersion: cover ? version(cover) : null,
+      followers, following, postCount: posts, isFollowing: Boolean(followed), isMe: profile.userId === viewer };
   }
   const authorSelect = { userId: true, handle: true, displayName: true } as const;
   router.get("/me", wrap(async (req, res) => {
@@ -72,9 +93,25 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
     res.json({ profile: profile ? await profileDTO(profile, uid(req)) : null });
   }));
   router.put("/me", writes, wrap(async (req, res) => {
-    const data = profileSchema.parse(req.body);
+    const { avatarFileId, coverFileId, ...data } = profileSchema.parse(req.body);
+    const updates = [["avatar", avatarFileId], ["cover", coverFileId]] as const;
+    if (updates.some(([, id]) => id !== undefined) && !mediaReady()) return res.status(503).json({ error: "profile_media_unavailable" });
+    // A client uploads a fresh, reduced JPEG copy; linking cannot claim another owner's object.
+    for (const [, id] of updates) if (id) {
+      const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT * FROM "CloudFile" WHERE "id" = ? AND "ownerId" = ? LIMIT 1`, id, uid(req));
+      const file = rows[0];
+      if (!file || !file.encrypted || !file.storageKey.startsWith(prefix(uid(req))) || !["image/jpeg", "image/png"].includes(file.mimeType) || Number(file.byteCount) > 256 * 1024) return res.status(400).json({ error: "invalid_profile_media" });
+    }
     if (["admin", "support", "oneway", "security", "official"].includes(data.handle)) return res.status(409).json({ error: "handle_unavailable" });
-    const profile = await prisma.socialProfile.upsert({ where: { userId: uid(req) }, create: { ...data, userId: uid(req) }, update: data });
+    const profile = await prisma.$transaction(async tx => {
+      const saved = await tx.socialProfile.upsert({ where: { userId: uid(req) }, create: { ...data, userId: uid(req) }, update: data });
+      for (const [kind, id] of updates) {
+        if (id === undefined) continue; // Older clients preserve photos.
+        if (id === null) await tx.$executeRawUnsafe(`DELETE FROM "PrivacySetting" WHERE "userId" = ? AND "key" = ?`, uid(req), mediaKeys[kind]);
+        else await tx.$executeRawUnsafe(`INSERT INTO "PrivacySetting" ("id", "userId", "key", "value", "updatedAt") VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT("userId", "key") DO UPDATE SET "value" = excluded."value", "updatedAt" = CURRENT_TIMESTAMP`, randomUUID(), uid(req), mediaKeys[kind], id);
+      }
+      return saved;
+    });
     res.json({ profile: await profileDTO(profile, uid(req)) });
   }));
   router.get("/people", wrap(async (req, res) => {
@@ -82,6 +119,26 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
     const profiles = await prisma.socialProfile.findMany({ where: { AND: [await visibleProfiles(uid(req)), { discoverable: true },
       { OR: [{ handle: { contains: page.q.toLowerCase() } }, { displayName: { contains: page.q } }] }] }, orderBy: { handle: "asc" }, take: page.limit });
     res.json({ profiles: await Promise.all(profiles.map(p => profileDTO(p, uid(req)))) });
+  }));
+  router.get("/profiles/:handle/media/:kind", wrap(async (req, res) => {
+    res.set({ "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" });
+    const kind = z.enum(["avatar", "cover"]).parse(req.params.kind);
+    const handle = identifier.parse(req.params.handle).toLowerCase();
+    const profile = await prisma.socialProfile.findFirst({ where: { AND: [await visibleProfiles(uid(req)), { handle }] } });
+    if (!profile || !mediaReady()) return res.status(404).end();
+    const file = await mediaFile(profile.userId, kind);
+    if (!file || typeof req.query.v !== "string" || req.query.v !== version(file)) return res.status(404).end();
+    const object = await storage!.read(file.storageKey);
+    if (!object) return res.status(404).end();
+    const chunks: Buffer[] = []; let count = 0;
+    for await (const chunk of object.stream) {
+      const bytes = Buffer.from(chunk); count += bytes.length;
+      if (count > 1024 * 1024) { object.stream.destroy(); return res.status(413).end(); }
+      chunks.push(bytes);
+    }
+    const bytes = Buffer.from(decryptString(Buffer.concat(chunks).toString(), { purpose: "cloud-media", owner: profile.userId, id: file.id }), "base64");
+    if (bytes.length !== Number(file.byteCount) || !validCloudMedia(bytes, file.mimeType)) return res.status(404).end();
+    res.set({ "Content-Type": file.mimeType, "Content-Disposition": "inline" }).send(bytes);
   }));
   router.get("/profiles/:handle", wrap(async (req, res) => {
     const handle = identifier.parse(req.params.handle).toLowerCase();
