@@ -352,3 +352,19 @@ test("communication privacy fails closed if policy storage is unavailable", asyn
   const broken = {oneWayContact: {findFirst: async () => null}, $queryRawUnsafe: async () => {throw new Error("offline");}};
   assert.equal(await mayCommunicate(broken as any, randomUUID(), randomUUID()), false);
 });
+
+
+test("profile decoration persists independently from website tools and older clients preserve it", async () => {
+  const owner = randomUUID(), visitor = randomUUID();
+  for (const id of [owner, visitor]) await prisma.user.create({data: {id, email: `${id}@example.invalid`, displayName: "Page design fixture", passwordHash: "test"}});
+  const p = profile("page_design_fixture");
+  assert.deepEqual((await call(owner, "/me", "PUT", p)).data.profile.pageDesign, {background:"quantum",layout:"classic",photoShape:"rounded"});
+  const design = {background:"metal",layout:"spotlight",photoShape:"circle"};
+  assert.equal((await call(owner, "/me", "PUT", {...p,pageDesign:design})).status, 200);
+  assert.deepEqual((await call(visitor, "/profiles/page_design_fixture")).data.profile.pageDesign, design);
+  await call(owner, "/me", "PUT", p);
+  assert.deepEqual((await call(owner, "/me")).data.profile.pageDesign, design);
+  for (const bad of [{...design,background:"<script>"},{...design,layout:"website"},{...design,html:"anything"}]) assert.equal((await call(owner, "/me", "PUT", {...p,pageDesign:bad})).status, 400);
+  assert.deepEqual((await call(owner, "/me")).data.profile.pageDesign, design);
+  assert.equal(await prisma.site.count({where:{userId:owner}}), 0);
+});
