@@ -1,3 +1,4 @@
+import { mayCommunicate } from "./services/AccountVisibility";
 import "dotenv/config";
 
 import cors from "cors";
@@ -491,6 +492,7 @@ app.post("/calls/invite", authMiddleware, async (req, res) => {
     return;
   }
 
+  if (!await mayCommunicate(prisma, userId, calleeUserId)) { res.status(403).json({error: "contact_approval_required"}); return; }
   const calleeHasActiveSocket = ws.isUserConnected(calleeUserId);
   const calleePushToken = await pushTokens.get(calleeUserId);
 
@@ -627,6 +629,7 @@ app.post("/calls/start", authMiddleware, async (req, res) => {
     return;
   }
 
+  if (!await mayCommunicate(prisma, userId, resolvedTarget.userId)) { res.status(403).json({error: "contact_approval_required"}); return; }
   const calleeHasActiveSocket = ws.isUserConnected(resolvedTarget.userId);
   const calleePushToken = await pushTokens.get(resolvedTarget.userId);
   if (!calleeHasActiveSocket && !calleePushToken) {
@@ -921,6 +924,7 @@ if (process.env.NODE_ENV !== "production") {
 // -------------------------------------------------------------------------
 const httpServer = http.createServer(app);
 ws = new CallWebSocketServer({
+  mayInvite: (sender, recipient) => mayCommunicate(prisma, sender, recipient),
   registry,
   path: "/ws/calls",
   onCallInvited: (callerId, calleeId, call) => {

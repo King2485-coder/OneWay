@@ -1,4 +1,5 @@
 import type { EmailAlertPushService } from "../services/EmailAlertPushService";
+import { mayCommunicate } from "../services/AccountVisibility";
 import express from "express";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -597,6 +598,7 @@ export function messagesRouter(deps: { realtime?: MessageRealtimeServer; alerts?
       .map((participant) => participant.userId)
       .filter((participantId) => participantId !== userId);
 
+    if (conversation.type === "direct" && (await Promise.all(recipientIds.map(id => mayCommunicate(prisma, userId, id)))).some(allowed => !allowed)) { res.status(403).json({error: "contact_approval_required", message: "An approved contact connection is required."}); return; }
     const message = await prisma.$transaction(async (tx) => {
       const created = await tx.message.create({
         data: {

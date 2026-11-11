@@ -1,3 +1,4 @@
+import { mayCommunicate } from "../services/AccountVisibility";
 import type { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import express from "express";
@@ -427,6 +428,7 @@ async function isWalkieAllowedByTargetPrivacy(
   callerUserId: string,
   targetUserId: string
 ): Promise<boolean> {
+  if (!await mayCommunicate(prisma, callerUserId, targetUserId)) return false;
   const privacy = await getWalkiePrivacy(prisma, targetUserId);
   if (privacy.allowAnyone) return true;
 
@@ -485,6 +487,7 @@ async function isDirectChirpDiscoverable(
   recipientUserId: string,
   privacy: WalkiePrivacyDTO
 ): Promise<boolean> {
+  if (!await mayCommunicate(prisma, senderUserId, recipientUserId)) return false;
   if (!privacy.allowDirectChirp || privacy.directChirpAudience === "nobody") return false;
   if (privacy.directChirpAudience === "everyone" || privacy.directChirpAudience === "verified") return true;
   if (privacy.directChirpAudience === "contacts") return areFriends(prisma, recipientUserId, senderUserId);
@@ -596,6 +599,7 @@ async function handleDirectChirpAction(
     return;
   }
 
+  if (status === "accepted" && !await mayCommunicate(prisma, row.senderUserId, row.recipientUserId)) { res.status(403).json({error: "contact_approval_required"}); return; }
   const column = status === "cancelled" ? "cancelledAt" : `${status}At`;
   await prisma.$executeRawUnsafe(
     `UPDATE "DirectChirpRequest" SET "status" = ?, "${column}" = CURRENT_TIMESTAMP, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ?`,
@@ -1053,6 +1057,7 @@ export function walkieRouter({
     }
 
     for (const target of resolvedTargets) {
+      if (!await mayCommunicate(prisma, userId, target.userId)) { res.status(403).json({error: "contact_approval_required", message: "An approved contact connection is required."}); return; }
       if (await isBlockedBetween(prisma, userId, target.userId)) {
         logger.warn({
           event: "CHIRP_SERVER_PACKET_REJECTED",

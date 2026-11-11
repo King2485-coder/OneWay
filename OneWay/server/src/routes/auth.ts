@@ -1,3 +1,4 @@
+import { setGhostMode } from "../services/AccountVisibility";
 import express from "express";
 import { z } from "zod";
 import { prisma } from "../lib/db";
@@ -68,6 +69,7 @@ const credentialsSchema = z.object({
   onewayId: z.string().min(2).max(32).optional(),
   emailAlias: z.string().min(1).max(64).optional(),
   usernameHidden: z.boolean().optional(),
+  ghostMode: z.boolean().optional(),
 });
 
 const loginSchema = z.object({
@@ -148,6 +150,7 @@ export function authRouter(): express.Router {
           displayName: parsed.data.displayName ?? email.split("@")[0],
         },
       });
+      await setGhostMode(prisma, user.id, parsed.data.ghostMode ?? false);
       await createInitialIdentity({
         userId: user.id,
         displayName: parsed.data.displayName ?? user.displayName,

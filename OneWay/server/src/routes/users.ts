@@ -1,4 +1,6 @@
-import express from "express";
+import express, {type RequestHandler} from "express";
+import type {PrismaClient} from "@prisma/client";
+import { ghostUsers, approvedContacts, matchesExactContact, ghostMode } from "../services/AccountVisibility";
 import { prisma } from "../lib/db";
 import { chirpLookupRateLimit, userSearchRateLimit } from "../lib/rateLimit";
 import { authMiddleware, type AuthenticatedRequest } from "../middleware/auth";
@@ -9,11 +11,13 @@ import {
   normalizeChirpId,
 } from "../services/identity";
 
-export function usersRouter(): express.Router {
+export function usersRouter(deps?: {db: PrismaClient; authenticate: RequestHandler}): express.Router {
+  const client = deps?.db ?? prisma;
   const router = express.Router();
-  router.use(authMiddleware);
+  const wrap = (action: (req: express.Request, res: express.Response) => Promise<unknown>): RequestHandler => (req, res, next) => { void action(req, res).catch(next); };
+  router.use(deps?.authenticate ?? authMiddleware);
 
-  router.get("/search", userSearchRateLimit(), async (req, res) => {
+  router.get("/search", userSearchRateLimit(), wrap(async (req, res) => {
     const requesterId = (req as AuthenticatedRequest).userId;
     const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
     if (!q) {
@@ -23,9 +27,12 @@ export function usersRouter(): express.Router {
 
     const normalizedQuery = q.toLowerCase();
     const chirpCandidates = chirpLookupCandidates(q);
-    const users = await prisma.user.findMany({
+    const hidden = new Set(await ghostUsers(client));
+    const approved = new Set(await approvedContacts(client, requesterId));
+    const users = await client.user.findMany({
       where: {
         OR: [
+          {AND: [{id: {notIn: [...hidden]}}, {OR: [
           { id: { contains: q } },
           { displayName: { contains: q } },
           { chirpIdNormalized: { in: chirpCandidates } },
@@ -53,7 +60,15 @@ export function usersRouter(): express.Router {
               { identity: { is: { showNumbers: true } } },
             ],
           },
+        ]}]},
+          {AND: [{id: {in: [...hidden]}}, {OR: [
+            {identity: {is: {onewayId: "@" + normalizedQuery.replace(/^@/, "")}}},
+            {chirpIdNormalized: normalizedQuery.toUpperCase()},
+            {identity: {is: {emailAlias: normalizedQuery}}},
+            {numbers: {some: {number: q.startsWith("+") ? "+" + q.replace(/[^0-9]/g, "") : q.replace(/[^0-9]/g, "").length === 10 ? "+1" + q.replace(/[^0-9]/g, "") : "+" + q.replace(/[^0-9]/g, "")}}}
+          ]}]}
         ],
+        accountStatus: "active", publicProfileHiddenAt: null,
         NOT: { id: requesterId },
       },
       select: {
@@ -76,7 +91,6 @@ export function usersRouter(): express.Router {
         },
         numbers: {
           orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-          take: 3,
           select: {
             id: true,
             number: true,
@@ -89,12 +103,14 @@ export function usersRouter(): express.Router {
     });
 
     res.json({
-      users: await Promise.all(users.map(async (user) => {
+      users: await Promise.all(users.filter(user => !hidden.has(user.id) || approved.has(user.id) || matchesExactContact(q, user)).map(async (user) => {
         const identity = user.identity ?? await loadPublicIdentity(user.id);
-        const chirpId = user.chirpId?.trim() || await ensureUserChirpId(prisma, user.id);
-        const friendshipState = await friendshipStateFor(requesterId, user.id);
+        if (hidden.has(user.id) && !approved.has(user.id)) return {id: user.id, displayName: "Private OneWay account", matchedIdentifier: q, onewayId: user.identity?.onewayId?.toLowerCase().replace(/^@/, "") === normalizedQuery.replace(/^@/, "") ? user.identity.onewayId : null, chirpId: user.chirpId?.toLowerCase() === normalizedQuery ? user.chirpId : null, emailAlias: user.identity?.emailAlias?.toLowerCase() === normalizedQuery ? user.identity.emailAlias : null, username: null, primaryNumber: null, isOneWayReachable: false, friendshipState: await friendshipStateFor(requesterId, user.id, client)};
+        const chirpId = user.chirpId?.trim() || await ensureUserChirpId(client, user.id);
+        const friendshipState = await friendshipStateFor(requesterId, user.id, client);
         return {
           id: user.id,
+          matchedIdentifier: matchesExactContact(q, user) ? q : null,
           displayName: identity.displayName ?? user.displayName,
           onewayId: identity.showOneWayId ? identity.onewayId : null,
           chirpId,
@@ -106,9 +122,9 @@ export function usersRouter(): express.Router {
         };
       })),
     });
-  });
+  }));
 
-  router.get("/by-chirp-id/:chirpId", chirpLookupRateLimit(), async (req, res) => {
+  router.get("/by-chirp-id/:chirpId", chirpLookupRateLimit(), wrap(async (req, res) => {
     const requesterId = (req as AuthenticatedRequest).userId;
     const rawChirpId = Array.isArray(req.params.chirpId) ? req.params.chirpId[0] : req.params.chirpId;
     const candidates = chirpLookupCandidates(rawChirpId ?? "");
@@ -120,9 +136,10 @@ export function usersRouter(): express.Router {
       return;
     }
 
-    const user = await prisma.user.findFirst({
+    const user = await client.user.findFirst({
       where: {
         chirpIdNormalized: { in: candidates.map(normalizeChirpId) },
+        accountStatus: "active", publicProfileHiddenAt: null,
         NOT: { id: requesterId },
       },
       select: {
@@ -150,8 +167,9 @@ export function usersRouter(): express.Router {
       return;
     }
 
+    if (await ghostMode(client, user.id) && !(await approvedContacts(client, requesterId)).includes(user.id)) { res.json({user: {id: user.id, displayName: "Private OneWay account", onewayId: null, chirpId: rawChirpId, emailAlias: null, username: null, primaryNumber: null, isOneWayReachable: false, friendshipState: await friendshipStateFor(requesterId, user.id, client)}}); return; }
     const identity = user.identity ?? await loadPublicIdentity(user.id);
-    const chirpId = user.chirpId?.trim() || await ensureUserChirpId(prisma, user.id);
+    const chirpId = user.chirpId?.trim() || await ensureUserChirpId(client, user.id);
     res.json({
       user: {
         id: user.id,
@@ -162,16 +180,16 @@ export function usersRouter(): express.Router {
         username: !identity.usernameHidden ? identity.username : null,
         primaryNumber: null,
         isOneWayReachable: true,
-        friendshipState: await friendshipStateFor(requesterId, user.id),
+        friendshipState: await friendshipStateFor(requesterId, user.id, client),
       },
     });
-  });
+  }));
 
   return router;
 }
 
-async function friendshipStateFor(requesterId: string, targetUserId: string): Promise<string> {
-  const contact = await prisma.oneWayContact.findUnique({
+async function friendshipStateFor(requesterId: string, targetUserId: string, client: PrismaClient = prisma): Promise<string> {
+  const contact = await client.oneWayContact.findUnique({
     where: {
       userId_contactUserId: {
         userId: requesterId,

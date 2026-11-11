@@ -1,3 +1,5 @@
+import { ghostMode, ghostUsers, approvedContacts } from "../services/AccountVisibility";
+import { contactOptions, selectedContact, contactDisplayKey } from "../services/SocialProfileContact";
 import express, { type RequestHandler } from "express";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { z } from "zod";
@@ -19,6 +21,7 @@ const profileSchema = z.object({
     catch { return false; }
   }),
   discoverable: z.boolean().default(false),
+  contactDisplay: z.string().regex(/^(none|onewayId|chirpId|emailAlias|number:[a-fA-F0-9-]{36})$/).optional(),
   accent: z.enum(["violet", "blue", "teal", "rose", "amber"]).optional(),
   pinnedSiteId: z.string().uuid().nullable().optional(),
   avatarFileId: z.string().uuid().nullable().optional(),
@@ -47,7 +50,7 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
     return f && f.encrypted && f.storageKey.startsWith(prefix(owner)) && ["image/jpeg", "image/png"].includes(f.mimeType) && Number(f.byteCount) <= 256 * 1024 ? f : null;
   }
   const enabled = deps.enabled ?? (() => process.env.ONEWAY_SOCIAL_ENABLED === "true");
-  router.get("/status", (_req, res) => { res.json({ enabled: enabled(), version: 4, postEditing: true, postAvatars: true, profileMedia: mediaReady(), profileCustomization: true }); });
+  router.get("/status", (_req, res) => { res.json({ enabled: enabled(), version: 5, ghostMode: true, contactDisplay: true, postEditing: true, postAvatars: true, profileMedia: mediaReady(), profileCustomization: true }); });
   router.use((req, res, next) => { if (!enabled()) { res.status(503).json({ error: "social_not_enabled" }); return; } next(); });
   router.use((_req, res, next) => { res.set("Cache-Control", "private, no-store"); next(); });
   router.use(deps.authenticate);
@@ -73,7 +76,11 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
     return blocks.map(b => b.blockerId === viewer ? b.blockedId : b.blockerId);
   }
   async function visibleProfiles(viewer: string): Promise<Prisma.SocialProfileWhereInput> {
-    return { user: active, userId: { notIn: await excluded(viewer) }, OR: [{ discoverable: true }, { userId: viewer }] };
+    const [hidden, approved] = await Promise.all([ghostUsers(prisma), approvedContacts(prisma, viewer)]);
+    return {user: active, userId: {notIn: await excluded(viewer)}, OR: [
+      {userId: viewer}, {userId: {in: approved.filter(id => hidden.includes(id))}},
+      {discoverable: true, userId: {notIn: hidden}}
+    ]};
   }
   async function visiblePosts(viewer: string): Promise<Prisma.SocialPostWhereInput> {
     return { author: await visibleProfiles(viewer), OR: [{ authorId: viewer }, { audience: "public" },
@@ -107,20 +114,22 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
     const [avatar, cover] = await Promise.all([mediaFile(profile.userId, "avatar"), mediaFile(profile.userId, "cover")]).catch(() => [null, null]);
     const look = await profileLook(profile.userId);
     const pinnedWebsite = look.pinnedSiteId ? await pinnableSite(profile.userId, look.pinnedSiteId) : null;
-    return { ...profile, accent: ["violet", "blue", "teal", "rose", "amber"].includes(look.accent ?? "") ? look.accent : "violet", pinnedWebsite, avatarVersion: avatar ? version(avatar) : null, coverVersion: cover ? version(cover) : null,
+    return { ...profile, ghostMode: await ghostMode(prisma, profile.userId), publicContact: await selectedContact(prisma, profile.userId), ...(profile.userId === viewer ? {contactDisplay: (await prisma.$queryRawUnsafe<{value:string}[]>(`SELECT "value" FROM "PrivacySetting" WHERE "userId"=? AND "key"=? LIMIT 1`, viewer, contactDisplayKey))[0]?.value ?? "none"} : {}), accent: ["violet", "blue", "teal", "rose", "amber"].includes(look.accent ?? "") ? look.accent : "violet", pinnedWebsite, avatarVersion: avatar ? version(avatar) : null, coverVersion: cover ? version(cover) : null,
       followers, following, postCount: posts, isFollowing: Boolean(followed), isMe: profile.userId === viewer };
   }
   async function postDTO<T extends {author: {userId: string; handle: string; displayName: string}}>(post: T) {
     const avatar = await mediaFile(post.author.userId, "avatar").catch(() => null);
-    return {...post, author: {...post.author, avatarVersion: avatar ? version(avatar) : null}};
+    return {...post, author: {...post.author, publicContact: await selectedContact(prisma, post.author.userId), avatarVersion: avatar ? version(avatar) : null}};
   }
   const authorSelect = { userId: true, handle: true, displayName: true } as const;
+  router.get("/contact-options", wrap(async (req, res) => { res.json({options: await contactOptions(prisma, uid(req))}); }));
   router.get("/me", wrap(async (req, res) => {
     const profile = await prisma.socialProfile.findUnique({ where: { userId: uid(req) } });
     res.json({ profile: profile ? await profileDTO(profile, uid(req)) : null });
   }));
   router.put("/me", writes, wrap(async (req, res) => {
-    const { avatarFileId, coverFileId, accent, pinnedSiteId, ...data } = profileSchema.parse(req.body);
+    const { avatarFileId, coverFileId, accent, pinnedSiteId, contactDisplay, ...data } = profileSchema.parse(req.body);
+    if (contactDisplay !== undefined && !(await contactOptions(prisma, uid(req))).some(o => o.key === contactDisplay)) return res.status(400).json({error: "invalid_contact_choice"});
     const updates = [["avatar", avatarFileId], ["cover", coverFileId]] as const;
     if (updates.some(([, id]) => id !== undefined) && !mediaReady()) return res.status(503).json({ error: "profile_media_unavailable" });
     // A client uploads a fresh, reduced JPEG copy; linking cannot claim another owner's object.
@@ -144,13 +153,14 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
         const value = JSON.stringify({...previous, ...(accent !== undefined ? {accent} : {}), ...(pinnedSiteId !== undefined ? {pinnedSiteId} : {})});
         await tx.$executeRawUnsafe(`INSERT INTO "PrivacySetting" ("id", "userId", "key", "value", "updatedAt") VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT("userId", "key") DO UPDATE SET "value" = excluded."value", "updatedAt" = CURRENT_TIMESTAMP`, randomUUID(), uid(req), lookKey, value);
       }
+      if (contactDisplay !== undefined) await tx.$executeRawUnsafe(`INSERT INTO "PrivacySetting" ("id","userId","key","value","updatedAt") VALUES (?,?,?,?,CURRENT_TIMESTAMP) ON CONFLICT("userId","key") DO UPDATE SET "value"=excluded."value","updatedAt"=CURRENT_TIMESTAMP`, randomUUID(), uid(req), contactDisplayKey, contactDisplay);
       return saved;
     });
     res.json({ profile: await profileDTO(profile, uid(req)) });
   }));
   router.get("/people", wrap(async (req, res) => {
     const page = pageSchema.parse(req.query);
-    const profiles = await prisma.socialProfile.findMany({ where: { AND: [await visibleProfiles(uid(req)), { discoverable: true },
+    const profiles = await prisma.socialProfile.findMany({ where: { AND: [await visibleProfiles(uid(req)), { discoverable: true, userId: {notIn: await ghostUsers(prisma)} },
       { OR: [{ handle: { contains: page.q.toLowerCase() } }, { displayName: { contains: page.q } }] }] }, orderBy: { handle: "asc" }, take: page.limit });
     res.json({ profiles: await Promise.all(profiles.map(p => profileDTO(p, uid(req)))) });
   }));
@@ -184,7 +194,7 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
   router.get("/feed", wrap(async (req, res) => {
     const page = pageSchema.parse(req.query);
     const mode = z.enum(["following", "discover"]).default("following").parse(req.query.mode);
-    const scope: Prisma.SocialPostWhereInput = mode === "discover" ? { audience: "public", author: { discoverable: true } }
+    const scope: Prisma.SocialPostWhereInput = mode === "discover" ? { audience: "public", author: { discoverable: true, userId: {notIn: await ghostUsers(prisma)} } }
       : { OR: [{ authorId: uid(req) }, { author: { followers: { some: { followerId: uid(req) } } } }] };
     const cursor: Prisma.SocialPostWhereInput = page.before ? { OR: [{ createdAt: { lt: new Date(page.before) } }, { createdAt: new Date(page.before), id: { lt: page.beforeId } }] } : {};
     const posts = await prisma.socialPost.findMany({ where: { AND: [await visiblePosts(uid(req)), scope, cursor] }, include: { author: { select: authorSelect } }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: page.limit + 1 });
@@ -195,6 +205,7 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
     const data = postSchema.parse(req.body);
     const profile = await prisma.socialProfile.findUnique({ where: { userId: uid(req) } });
     if (!profile) return res.status(409).json({ error: "profile_required" });
+    if (data.audience === "public" && await ghostMode(prisma, uid(req))) return res.status(409).json({error: "ghost_mode_active"});
     if (data.audience === "public" && !profile.discoverable) return res.status(409).json({ error: "public_profile_required" });
     if (data.clientId) {
       const previous = await prisma.socialPost.findUnique({ where: { id: data.clientId }, include: { author: { select: authorSelect } } });
@@ -212,6 +223,7 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
     if (!current) return res.status(404).json({error: "post_not_found"});
     const audience = data.audience ?? current.audience;
     const profile = await prisma.socialProfile.findUnique({where: {userId: uid(req)}});
+    if (audience === "public" && await ghostMode(prisma, uid(req))) return res.status(409).json({error: "ghost_mode_active"});
     if (audience === "public" && !profile?.discoverable) return res.status(409).json({error: "public_profile_required"});
     if (current.body === data.body && current.audience === audience) return res.json({post: await postDTO(current)});
     const saved = await prisma.socialPost.updateMany({where: {id, authorId: uid(req), body: data.expectedBody, audience: data.expectedAudience}, data: {body: data.body, audience}});
@@ -225,7 +237,7 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
     res.status(result.count ? 204 : 404).end();
   }));
   async function target(viewer: string, targetId: string) {
-    return prisma.socialProfile.findFirst({ where: { AND: [await visibleProfiles(viewer), { userId: targetId, discoverable: true }] } });
+    return prisma.socialProfile.findFirst({ where: { AND: [await visibleProfiles(viewer), { userId: targetId }] } });
   }
   router.put("/following/:id", writes, wrap(async (req, res) => {
     const followingId = identifier.parse(req.params.id);

@@ -1,3 +1,4 @@
+import { mayCommunicate } from "../services/AccountVisibility";
 import express from "express";
 import { randomUUID } from "crypto";
 import { z } from "zod";
@@ -367,6 +368,7 @@ async function createCall(
     return;
   }
 
+  if (!await mayCommunicate(prisma, userId, recipientId)) { res.status(403).json({error: "contact_approval_required", message: "An approved OneWay contact connection is required."}); return; }
   const [recipientHasActiveSocket, recipientHasPushToken] = await Promise.all([
     Promise.resolve(deps.isUserConnected?.(recipientId) ?? false),
     deps.hasPushToken?.(recipientId) ?? Promise.resolve(false),

@@ -1,4 +1,5 @@
 import express from "express";
+import { accountVisibilityRouter } from "./accountVisibility";
 import { z } from "zod";
 import { prisma } from "../lib/db";
 import { logger } from "../lib/logger";
@@ -28,6 +29,7 @@ const updateIdentitySchema = z.object({
 export function identityRouter(): express.Router {
   const router = express.Router();
   router.use(authMiddleware);
+  router.use("/visibility", accountVisibilityRouter(prisma));
 
   router.get("/me", async (req, res) => {
     const userId = (req as unknown as AuthenticatedRequest).userId;

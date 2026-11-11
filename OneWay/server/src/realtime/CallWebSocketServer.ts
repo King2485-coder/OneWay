@@ -81,6 +81,7 @@ function tokenFromRequestUrl(value: string | undefined): string | undefined {
 
 export interface CallWebSocketServerDeps {
   registry: ICallRegistry;
+  mayInvite?: (sender: string, recipient: string) => Promise<boolean>;
   /** Path under the HTTP server. Default `/ws/calls`. */
   path?: string;
   /** Fired when a call is created via the WS `call:invite` event. Hosts
@@ -210,7 +211,7 @@ export class CallWebSocketServer {
         return;
       }
 
-      this.handleAuthed(socket, authedUserId, msg);
+      void this.handleAuthed(socket, authedUserId, msg).catch(() => this.send(socket, "error", {code: "unavailable", message: "Call authorization unavailable"}));
     });
 
     socket.on("close", () => {
@@ -264,7 +265,7 @@ export class CallWebSocketServer {
     return userId;
   }
 
-  private handleAuthed(socket: WSLike, userId: string, msg: ClientMessage): void {
+  private async handleAuthed(socket: WSLike, userId: string, msg: ClientMessage): Promise<void> {
     switch (msg.type) {
       case "call:invite": {
         const p = msg.payload as InvitePayload | undefined;
@@ -276,6 +277,7 @@ export class CallWebSocketServer {
           this.send(socket, "error", { code: "self_invite_forbidden", message: "cannot call yourself" });
           return;
         }
+        if (this.deps.mayInvite && !await this.deps.mayInvite(userId, p.calleeId)) { this.send(socket, "error", {code: "contact_approval_required", message: "An approved contact connection is required"}); return; }
         const existingCall = this.findActiveCallBetween(userId, p.calleeId);
         if (existingCall) {
           this.send(socket, "call:state", { call: existingCall });

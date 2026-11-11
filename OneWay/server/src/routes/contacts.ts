@@ -1,4 +1,5 @@
 import express from "express";
+import { ghostMode, ghostUsers } from "../services/AccountVisibility";
 import { z } from "zod";
 import type { OneWayContact, PrismaClient } from "@prisma/client";
 import { prisma } from "../lib/db";
@@ -383,6 +384,13 @@ async function resolveContactTarget(rawValue: string, requesterUserId: string): 
   const value = rawValue.trim();
   if (!value) return null;
 
+  const hidden = await ghostUsers(prisma);
+  const q = value.toLowerCase(); const digits = value.replace(/[^0-9]/g, "");
+  const exactGhost = await prisma.user.findFirst({where: {id: {in: hidden}, accountStatus: "active", publicProfileHiddenAt: null, OR: [
+    {identity: {is: {onewayId: normalizeOneWayId(value)}}}, {chirpIdNormalized: value.toUpperCase()},
+    {identity: {is: {emailAlias: q}}}, {numbers: {some: {number: "+" + (digits.length === 10 ? "1" + digits : digits)}}}
+  ]}, select: {id: true}});
+  if (exactGhost) return {userId: exactGhost.id};
   const chirpCandidates = chirpLookupCandidates(value);
   if (chirpCandidates.length > 0 && chirpCandidates.some((candidate) => /^OW[0-9]{6,9}$/.test(candidate))) {
     const byChirp = await prisma.user.findFirst({
@@ -453,7 +461,7 @@ async function resolveContactTarget(rawValue: string, requesterUserId: string): 
       select: { userId: true },
       orderBy: { updatedAt: "desc" },
     });
-    if (identity && identity.userId !== requesterUserId) return { userId: identity.userId };
+    if (identity && identity.userId !== requesterUserId && !await ghostMode(prisma, identity.userId)) return { userId: identity.userId };
   }
 
   return null;
@@ -468,6 +476,7 @@ async function mapContacts(contacts: OneWayContact[]): Promise<OneWayContactDTO[
 }
 
 async function mapContact(contact: OneWayContact): Promise<OneWayContactDTO> {
+  if (contact.status === "pending" && contact.direction === "outgoing" && await ghostMode(prisma, contact.contactUserId)) return {contactId: contact.id, id: contact.contactUserId, displayName: "Private OneWay account", handle: "@private", chirpId: null, status: "pending", isIncoming: false, nickname: sanitizeNickname(contact.nickname)};
   const identity = await loadPublicIdentity(contact.contactUserId);
   const chirpId = await ensureUserChirpId(prisma, contact.contactUserId);
   const nickname = sanitizeNickname(contact.nickname);

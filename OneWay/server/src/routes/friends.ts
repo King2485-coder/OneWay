@@ -1,3 +1,4 @@
+import { ghostMode } from "../services/AccountVisibility";
 import express from "express";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -612,9 +613,10 @@ async function mapRequest(prisma: PrismaClient, friendship: Friendship, currentU
   }
   const direction = isIncoming ? "incoming" : "outgoing";
   const peerUserId = isIncoming ? friendship.requesterUserId : friendship.recipientUserId;
+  const hidden = isOutgoing && await ghostMode(prisma, peerUserId);
   const identity = await loadPublicIdentity(peerUserId);
   const requester = await friendUserSummary(prisma, friendship.requesterUserId);
-  const recipient = await friendUserSummary(prisma, friendship.recipientUserId);
+  const recipient = hidden ? {userId: peerUserId, displayName: "Private OneWay account", handle: "@private", avatarURL: null, chirpId: null} : await friendUserSummary(prisma, friendship.recipientUserId);
   return {
     id: friendship.id,
     requestId: friendship.id,
@@ -624,9 +626,9 @@ async function mapRequest(prisma: PrismaClient, friendship: Friendship, currentU
     recipientUserId: friendship.recipientUserId,
     peerUserId,
     direction,
-    displayName: identity.displayName,
-    handle: identity.onewayId,
-    chirpId: await ensureUserChirpId(prisma, peerUserId),
+    displayName: hidden ? "Private OneWay account" : identity.displayName,
+    handle: hidden ? "@private" : identity.onewayId,
+    chirpId: hidden ? null : await ensureUserChirpId(prisma, peerUserId),
     status: "pending",
     isIncoming,
     requester,

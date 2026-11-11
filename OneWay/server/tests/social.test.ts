@@ -1,3 +1,6 @@
+import {ghostMode, setGhostMode, mayCommunicate} from "../src/services/AccountVisibility";
+import {accountVisibilityRouter} from "../src/routes/accountVisibility";
+import {usersRouter} from "../src/routes/users";
 import assert from "node:assert/strict";
 import { before, after, test } from "node:test";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
@@ -37,6 +40,8 @@ before(async () => {
   await prisma.$executeRawUnsafe('CREATE TABLE "PrivacySetting" ("id" TEXT PRIMARY KEY, "userId" TEXT, "key" TEXT, "value" TEXT, "updatedAt" DATETIME NOT NULL, UNIQUE("userId","key"))');
   const app = express(); app.use(express.json());
   const authenticate: express.RequestHandler = (req, res, next) => { const id = req.header("x-test-user"); if (!id) { res.status(401).end(); return; } (req as any).userId = id; next(); };
+  app.use("/api/account-visibility", authenticate, accountVisibilityRouter(prisma));
+  app.use("/api/users", usersRouter({db: prisma, authenticate}));
   app.use("/api/platform/cloud", cloudMediaRouter({ prisma, storage, authenticate }));
   app.use("/api/social", socialRouter({ prisma, storage, enabled: () => enabled, authenticate: (req, res, next) => {
     const id = req.header("x-test-user"); if (!id) { res.status(401).end(); return; }
@@ -272,4 +277,78 @@ test("every feed and profile post carries the author's current opaque avatar ver
   assert.equal((await call(viewer, "/feed?mode=discover")).data.posts.find((p: any) => p.id === id).author.avatarVersion, null);
   await call(viewer, `/blocks/${owner}`, "PUT");
   assert.equal((await call(viewer, "/feed?mode=discover")).data.posts.some((p: any) => p.id === id), false);
+});
+
+test("Ghost mode removes discovery, blocks unapproved communication and requires two-sided approval", async () => {
+  const owner = randomUUID(), viewer = randomUUID();
+  for (const id of [owner, viewer]) await prisma.user.create({data: {id, email: `${id}@example.invalid`, displayName: "Ghost fixture", passwordHash: "test"}});
+  await call(owner, "/me", "PUT", profile("ghost_owner")); await call(viewer, "/me", "PUT", profile("ghost_viewer"));
+  const pub = await call(owner, "/posts", "POST", {body: "Public before Ghost", audience: "public"});
+  await setGhostMode(prisma, owner, true); assert.equal(await ghostMode(prisma, owner), true);
+  assert.equal((await call(viewer, "/people?q=ghost_owner")).data.profiles.length, 0);
+  assert.equal((await call(viewer, "/profiles/ghost_owner")).status, 404);
+  assert.equal((await call(viewer, "/feed?mode=discover")).data.posts.some((p: any) => p.id === pub.data.post.id), false);
+  assert.equal((await call(owner, "/posts", "POST", {body: "Must not silently leave Ghost", audience: "public"})).data.error, "ghost_mode_active");
+  assert.equal((await call(owner, "/posts", "POST", {body: "Still private", audience: "followers"})).status, 201);
+  assert.equal(await mayCommunicate(prisma, viewer, owner), false); assert.equal(await mayCommunicate(prisma, owner, viewer), false);
+  assert.equal(await mayCommunicate(prisma, viewer.toUpperCase(), owner.toUpperCase()), false);
+  await prisma.oneWayContact.create({data: {userId: owner, contactUserId: viewer, status: "connected", direction: "incoming"}});
+  assert.equal(await mayCommunicate(prisma, viewer, owner), false);
+  await prisma.oneWayContact.create({data: {userId: viewer, contactUserId: owner, status: "connected", direction: "outgoing"}});
+  assert.equal(await mayCommunicate(prisma, viewer, owner), true);
+  assert.equal(await mayCommunicate(prisma, viewer.toUpperCase(), owner.toUpperCase()), true);
+  assert.equal((await call(viewer, "/profiles/ghost_owner")).status, 200);
+  await prisma.oneWayContact.update({where: {userId_contactUserId: {userId: owner, contactUserId: viewer}}, data: {status: "blocked"}});
+  assert.equal(await mayCommunicate(prisma, viewer, owner), false);
+  await setGhostMode(prisma, owner, false);
+  assert.equal((await call(viewer, "/profiles/ghost_owner")).status, 200); // Discovery preference was preserved, not silently rewritten.
+});
+
+test("Ghost accounts cannot be found by partial names or IDs; exact shared identifiers reveal only a request target", async () => {
+  const owner = randomUUID(), viewer = randomUUID();
+  for (const id of [owner, viewer]) await prisma.user.create({data: {id, email: `${id}@example.invalid`, displayName: "Private Secret Name", passwordHash: "test", chirpId: id === owner ? "OW87654321" : "OW87654322", chirpIdNormalized: id === owner ? "OW87654321" : "OW87654322"}});
+  await prisma.oneWayIdentity.create({data: {userId: owner, onewayId: "@quiet_hidden_fixture", emailAlias: "hiddenfixture@oneway.app", displayName: "Private Secret Name", showOneWayId: false, showNumbers: false, showEmailAlias: false}});
+  await prisma.userNumber.create({data: {userId: owner, number: "+15205551234"}});
+  await setGhostMode(prisma, owner, true);
+  for (const user of await prisma.user.findMany({where: {identity: {is: null}}, select: {id: true}})) await prisma.oneWayIdentity.create({data: {userId: user.id, onewayId: "@fixture_" + user.id.replaceAll("-", "").slice(0,20), emailAlias: user.id + "@oneway.app", displayName: "Fixture"}});
+  async function search(q: string) { const r = await fetch(base.replace("/api/social", "/api/users/search?q=" + encodeURIComponent(q)), {headers: {"x-test-user": viewer}}); assert.equal(r.status, 200); return (await r.json() as any).users; }
+  for (const query of ["Private", "quiet_hidden", "OW8765", "520555", owner]) assert.equal((await search(query)).some((u: any) => u.id === owner), false);
+  for (const query of ["@quiet_hidden_fixture", "OW87654321", "hiddenfixture@oneway.app", "+15205551234", "5205551234"]) {
+    const target = (await search(query)).find((u: any) => u.id === owner); assert.ok(target, query);
+    assert.equal(target.displayName, "Private OneWay account"); assert.equal(target.username, null); assert.equal(target.primaryNumber, null);
+    assert.doesNotMatch(JSON.stringify(target), /Private Secret Name|passwordHash|@example.invalid/);
+  }
+});
+
+test("profile contact disclosure defaults to nothing, validates ownership and preserves explicit choices for older clients", async () => {
+  const owner = randomUUID(), other = randomUUID();
+  for (const id of [owner, other]) await prisma.user.create({data: {id, email: `${id}@example.invalid`, displayName: "Contact fixture", passwordHash: "test"}});
+  await prisma.oneWayIdentity.create({data: {userId: owner, onewayId: "@contact_fixture", emailAlias: "contactfixture@oneway.app"}});
+  const mine = await prisma.userNumber.create({data: {userId: owner, number: "+15205551235"}}), theirs = await prisma.userNumber.create({data: {userId: other, number: "+15205551236"}});
+  const p = profile("contact_fixture");
+  assert.equal((await call(owner, "/me", "PUT", p)).data.profile.publicContact, null);
+  const options = (await call(owner, "/contact-options")).data.options;
+  assert.equal(options[0].key, "none"); assert.equal(options.some((o: any) => o.key === `number:${theirs.id}`), false);
+  assert.equal((await call(owner, "/me", "PUT", {...p, contactDisplay: `number:${theirs.id}`})).status, 400);
+  const selected = await call(owner, "/me", "PUT", {...p, contactDisplay: `number:${mine.id}`});
+  assert.equal(selected.data.profile.publicContact.value, mine.number);
+  await call(owner, "/me", "PUT", p);
+  assert.equal((await call(owner, "/me")).data.profile.publicContact.value, mine.number);
+  await call(owner, "/me", "PUT", {...p, contactDisplay: "none"});
+  assert.equal((await call(other, "/profiles/contact_fixture")).data.profile.publicContact, null);
+});
+
+test("visibility saves belong only to the authenticated owner and reject spoofed owner fields", async () => {
+  const owner = randomUUID(), other = randomUUID();
+  for (const id of [owner, other]) await prisma.user.create({data: {id, email: `${id}@example.invalid`, displayName: "Visibility fixture", passwordHash: "test"}});
+  const endpoint = base.replace("/api/social", "/api/account-visibility");
+  let r = await fetch(endpoint, {method: "PATCH", headers: {"x-test-user": owner,"Content-Type":"application/json"}, body: JSON.stringify({ghostMode: true, userId: other})}); assert.equal(r.status, 400);
+  r = await fetch(endpoint, {method: "PATCH", headers: {"x-test-user": owner,"Content-Type":"application/json"}, body: JSON.stringify({ghostMode: true})}); assert.equal(r.status, 200);
+  assert.equal(await ghostMode(prisma, owner), true); assert.equal(await ghostMode(prisma, other), false);
+  assert.equal((await fetch(endpoint)).status, 401);
+});
+
+test("communication privacy fails closed if policy storage is unavailable", async () => {
+  const broken = {oneWayContact: {findFirst: async () => null}, $queryRawUnsafe: async () => {throw new Error("offline");}};
+  assert.equal(await mayCommunicate(broken as any, randomUUID(), randomUUID()), false);
 });
