@@ -1,3 +1,4 @@
+import {completeGroupRemoval} from "./services/GroupCallMembership";
 import { mayCommunicate } from "./services/AccountVisibility";
 import "dotenv/config";
 
@@ -541,7 +542,7 @@ app.post("/calls/invite", authMiddleware, async (req, res) => {
         callId: call.callId,
         callerId: userId,
         hasVideo,
-        displayName: callerIdentity.callerDisplay,
+        displayName: call.groupMembers ? "Group call · " + callerIdentity.callerDisplay : callerIdentity.callerDisplay,
         roomName: call.roomName,
         callerNumber: callerIdentity.callerNumber,
         callerName: callerIdentity.callerName,
@@ -879,7 +880,7 @@ mountRouter("/api/calls", callsRouter({
           callId: call.callId,
           callerId,
           hasVideo: call.hasVideo,
-          displayName: callerIdentity.callerDisplay,
+          displayName: call.groupMembers ? "Group call · " + callerIdentity.callerDisplay : callerIdentity.callerDisplay,
           roomName: call.roomName,
           callerNumber: callerIdentity.callerNumber,
           callerName: callerIdentity.callerName,
@@ -924,6 +925,7 @@ if (process.env.NODE_ENV !== "production") {
 // -------------------------------------------------------------------------
 const httpServer = http.createServer(app);
 ws = new CallWebSocketServer({
+  onGroupParticipantLeft: (callId,roomName,userId) => { void completeGroupRemoval(registry,callId,userId,()=>livekit.removeParticipant(roomName,"oneway-user-"+userId.toLowerCase())); },
   mayInvite: (sender, recipient) => mayCommunicate(prisma, sender, recipient),
   registry,
   path: "/ws/calls",
@@ -935,7 +937,7 @@ ws = new CallWebSocketServer({
           callId: call.callId,
           callerId,
           hasVideo: call.hasVideo,
-          displayName: callerIdentity.callerDisplay,
+          displayName: call.groupMembers ? "Group call · " + callerIdentity.callerDisplay : callerIdentity.callerDisplay,
           roomName: call.roomName,
           callerNumber: callerIdentity.callerNumber,
           callerName: callerIdentity.callerName,

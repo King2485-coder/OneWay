@@ -86,7 +86,8 @@ export class CallRegistry extends EventEmitter implements ICallRegistry {
   }
 
   get(callId: string): CallSession | undefined {
-    return this.calls.get(normalizeCallId(callId));
+    const key=normalizeCallId(callId);
+    return this.calls.get(key) ?? [...this.calls.values()].find(c=>c.groupMembers?.some(m=>m.invitationCallId?.toLowerCase()===key||m.previousCallIds?.some(id=>id.toLowerCase()===key)));
   }
 
   /** Look up by LiveKit room name. Linear scan; fine at typical concurrency. */
@@ -106,6 +107,7 @@ export class CallRegistry extends EventEmitter implements ICallRegistry {
       const call = this.calls.get(id);
       if (!call) continue;
       if (isTerminal(call.status)) continue;
+      if (call.groupMembers && !call.groupMembers.some(m => sameUserId(m.userId,userId) && m.state !== "left" && m.state !== "declined")) continue;
       out.push(call);
     }
     return out;
@@ -180,6 +182,7 @@ export class CallRegistry extends EventEmitter implements ICallRegistry {
     this.removeFromUserIndex(call.callerId, normalizedCallId);
     this.removeFromUserIndex(call.calleeId, normalizedCallId);
     for (const p of call.participants) this.removeFromUserIndex(p, normalizedCallId);
+    for (const m of call.groupMembers ?? []) this.removeFromUserIndex(m.userId, normalizedCallId);
     this.emit("call:removed", call);
   }
 
@@ -190,6 +193,7 @@ export class CallRegistry extends EventEmitter implements ICallRegistry {
     this.indexUser(call.callerId, call.callId);
     this.indexUser(call.calleeId, call.callId);
     for (const p of call.participants) this.indexUser(p, call.callId);
+    for (const m of call.groupMembers ?? []) this.indexUser(m.userId, call.callId);
   }
 
   private indexUser(userId: string, callId: string): void {

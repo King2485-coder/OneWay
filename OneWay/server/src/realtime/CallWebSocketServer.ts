@@ -1,3 +1,5 @@
+import {memberCallMatches,callForUser,groupAction,memberFor,canJoinCall} from "../services/GroupCallMembership";
+import {isParticipant as isCallParticipant} from "../types/calls";
 /**
  * WebSocket signalling for the OneWay calling system.
  *
@@ -81,6 +83,7 @@ function tokenFromRequestUrl(value: string | undefined): string | undefined {
 
 export interface CallWebSocketServerDeps {
   registry: ICallRegistry;
+  onGroupParticipantLeft?: (callId:string,roomName:string,userId:string)=>void;
   mayInvite?: (sender: string, recipient: string) => Promise<boolean>;
   /** Path under the HTTP server. Default `/ws/calls`. */
   path?: string;
@@ -244,7 +247,8 @@ export class CallWebSocketServer {
     // Reply with current calls so the client can recover state after a
     // reconnect. Recent terminal calls are replayed as `call:ended` to clear
     // any local CallKit/LiveKit ghost if the realtime event was missed.
-    for (const call of this.deps.registry.callsForUser(userId)) {
+    for (const stored of this.deps.registry.callsForUser(userId)) {
+      const call=callForUser(stored,userId);
       if (call.status === "ended" || call.status === "missed" || call.status === "failed" || call.status === "declined") {
         logger.info({
           eventType: "call.ended",
@@ -305,7 +309,7 @@ export class CallWebSocketServer {
           this.send(socket, "error", { code: "bad_payload", message: "callId required" });
           return;
         }
-        this.applyLifecycleAction(socket, userId, msg.type, p.callId);
+        await this.applyLifecycleAction(socket, userId, msg.type, p.callId);
         return;
       }
       case "call:ice-ready": {
@@ -314,7 +318,7 @@ export class CallWebSocketServer {
         const p = msg.payload as CallIdPayload | undefined;
         if (p?.callId) {
           const call = this.deps.registry.get(normalizeCallId(p.callId));
-          if (call) this.send(socket, "call:state", { call });
+          if (call && (isCallParticipant(call,userId)||memberFor(call,userId))) this.send(socket, "call:state", { call:callForUser(call,userId) });
         }
         return;
       }
@@ -335,17 +339,14 @@ export class CallWebSocketServer {
           this.send(socket, "error", { code: "not_found", message: "no such call" });
           return;
         }
-        const isParticipant =
-          sameUserId(call.callerId, userId) ||
-          sameUserId(call.calleeId, userId) ||
-          call.participants.some((participant) => sameUserId(participant, userId));
+        const isParticipant = isCallParticipant(call,userId) && canJoinCall(call,userId);
         if (!isParticipant) {
           this.send(socket, "error", { code: "not_participant", message: "not a call participant" });
           return;
         }
         // Only relay to the other party / participants of this call.
         const recipients = this.recipientsForCall(call);
-        if (![...recipients].some((recipient) => sameUserId(recipient, p.toUserId))) {
+        if (!isCallParticipant(call,p.toUserId) || !canJoinCall(call,p.toUserId)) {
           this.send(socket, "error", { code: "bad_recipient", message: "recipient not in call" });
           return;
         }
@@ -372,17 +373,24 @@ export class CallWebSocketServer {
     }
   }
 
-  private applyLifecycleAction(
+  private async applyLifecycleAction(
     socket: WSLike,
     userId: string,
     type: "call:accept" | "call:decline" | "call:hangup",
     callId: string
-  ): void {
+  ): Promise<void> {
     const normalizedCallId = normalizeCallId(callId);
     const call = this.deps.registry.get(normalizedCallId);
     if (!call) {
       this.send(socket, "error", { code: "not_found", message: "no such call" });
       return;
+    }
+    if(call.groupMembers) {
+      if(!memberCallMatches(call,userId,normalizedCallId)){this.send(socket,"error",{code:"stale_invitation",message:"This invitation is no longer current"});return;}
+      const member=memberFor(call,userId);
+      if(type==="call:accept" && (!member || !this.deps.mayInvite || !await this.deps.mayInvite(member.invitedBy,userId))){this.send(socket,"error",{code:"contact_approval_required",message:"Contact approval required"});return;}
+      try {groupAction(this.deps.registry,call,userId,type==="call:accept"?"accept":type==="call:decline"?"decline":"leave");if(type==="call:hangup")this.deps.onGroupParticipantLeft?.(call.callId,call.roomName,userId);}
+      catch {this.send(socket,"error",{code:"invalid_group_action",message:"Use a current group invitation"});}return;
     }
     const isCallee = sameUserId(call.calleeId, userId);
     const isParticipant =
@@ -445,6 +453,14 @@ export class CallWebSocketServer {
     }
     this.lastFanoutFingerprintByCallId.set(call.callId, fingerprint);
 
+    if(call.groupMembers) {
+      for(const member of call.groupMembers) {
+        const view=callForUser(call,member.userId);
+        const event:ServerEvent=["ended","failed","missed","declined"].includes(view.status)?"call:ended":view.status==="ringing"?"call:ringing":"call:state";
+        this.sendToUser(member.userId,event,{call:view});
+      }
+      return;
+    }
     if (call.status === "ringing") {
       if (this.ringingFanoutCallIds.has(call.callId)) return;
       this.ringingFanoutCallIds.add(call.callId);
@@ -503,6 +519,7 @@ export class CallWebSocketServer {
 
   private fanOutAuthoritativeCallEnded(call: CallSession, sourceFunction: string): void {
     const recipients = this.recipientsForCall(call);
+    if(call.groupMembers) { for(const userId of recipients) this.sendToUser(userId,"call:ended",callEndedPayload({...callForUser(call,userId),status:"ended"}));return; }
     const payload = callEndedPayload(call);
     logger.info({
       marker: "CALL_ENDED_BROADCAST_STARTED",
@@ -562,6 +579,7 @@ export class CallWebSocketServer {
     out.add(call.callerId);
     out.add(call.calleeId);
     for (const p of call.participants) out.add(p);
+    for (const m of call.groupMembers ?? []) out.add(m.userId);
     return out;
   }
 
@@ -663,6 +681,7 @@ export class CallWebSocketServer {
       call.acceptedAt ?? "",
       call.endedAt ?? "",
       call.participants.join(","),
+      call.groupMembers ? call.version ?? 1 : "",
     ].join("|");
   }
 

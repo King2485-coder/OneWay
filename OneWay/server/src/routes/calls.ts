@@ -1,3 +1,4 @@
+import {completeGroupRemoval,memberCallMatches,currentCall,GROUP_CALL_LIMIT,memberFor,isActiveMember,membersForPromotion,callForUser,canJoinCall,groupAction,scheduleGroupInviteExpiry} from "../services/GroupCallMembership";
 import { mayCommunicate } from "../services/AccountVisibility";
 import express from "express";
 import { randomUUID } from "crypto";
@@ -6,7 +7,7 @@ import type { ICallRegistry } from "../services/CallRegistry";
 import { RegistryError, isTerminal } from "../services/CallRegistry";
 import { authMiddleware, type AuthenticatedRequest } from "../middleware/auth";
 import { isParticipant, sameUserId } from "../types/calls";
-import { inviteRateLimit } from "../lib/rateLimit";
+import { inviteRateLimit,groupInviteRateLimit } from "../lib/rateLimit";
 import { logger } from "../lib/logger";
 import { prisma } from "../lib/db";
 import type { LiveKitTokenService } from "../services/LiveKitTokenService";
@@ -22,6 +23,9 @@ import { LiveKitSIPBridgeService } from "../services/pstn/LiveKitSIPBridgeServic
 
 interface CallsRouterDeps {
   registry: ICallRegistry;
+  displayName?: (userId:string)=>Promise<string>;
+  mayInvite?: (sender:string,recipient:string)=>Promise<boolean>;
+  resolveRecipient?: (sender:string,recipient:string)=>Promise<string|null>;
   /** Hook the WebSocket server provides so we can fan-out REST-driven
    *  changes to any other connected sockets the user owns. */
   onCallChanged?: (call: ReturnType<ICallRegistry["get"]>) => void;
@@ -75,6 +79,7 @@ export const SUPPORTED_CALL_ROUTES = [
   "POST /api/calls/:callId/join",
   "POST /api/calls/:callId/media-ready",
   "POST /api/calls/:callId/end",
+  "POST /api/calls/:callId/participants",
 ] as const;
 
 export function callsRouter(deps: CallsRouterDeps): express.Router {
@@ -120,6 +125,41 @@ export function callsRouter(deps: CallsRouterDeps): express.Router {
     });
   });
 
+  router.post("/:callId/participants", groupInviteRateLimit(), async (req,res,next)=>{
+    try {
+      const userId=(req as AuthenticatedRequest).userId;
+      const input=z.object({recipientUserId:z.string().uuid()}).strict().safeParse(req.body);
+      if(!input.success){res.status(400).json({error:"invalid_body"});return;}
+      const callId=String(req.params.callId).toLowerCase();
+      let call=currentCall(deps.registry,callId);
+      if(!call||!isParticipant(call,userId)||!memberCallMatches(call,userId,callId)){res.status(404).json({error:"not_found"});return;}
+      if(call.status!=="connected" || (call.groupMembers && memberFor(call,userId)?.state!=="joined")){res.status(409).json({error:"call_not_connected"});return;}
+      if(!limiter.consume(userId)){res.status(429).json({error:"rate_limited"});return;}
+      const recipient=await (deps.resolveRecipient ?? resolveCalleeIdForInvite)(userId,input.data.recipientUserId);
+      if(!recipient){res.status(404).json({error:"recipient_not_found"});return;}
+      if(sameUserId(recipient,userId)){res.status(400).json({error:"self_call_forbidden"});return;}
+      if(!await (deps.mayInvite ?? ((a,b)=>mayCommunicate(prisma,a,b)))(userId,recipient)){res.status(403).json({error:"contact_approval_required"});return;}
+      const reachable=(deps.isUserConnected?.(recipient)??false)||await deps.hasPushToken?.(recipient);
+      if(!reachable){res.status(409).json({error:"recipient_unreachable"});return;}
+      // Re-read after asynchronous authorization: leaving/capacity changes win.
+      call=currentCall(deps.registry,callId);
+      if(!call||call.status!=="connected"||!isParticipant(call,userId)||(call.groupMembers&&memberFor(call,userId)?.state!=="joined")){res.status(409).json({error:"call_not_connected"});return;}
+      const members=membersForPromotion(call);
+      const existing=members.find(m=>sameUserId(m.userId,recipient));
+      if(existing?.removalPending){res.status(409).json({error:"participant_leaving"});return;}
+      if(existing&&isActiveMember(existing)){res.json({call:callForUser(call,userId),alreadyInvited:true});return;}
+      if(members.filter(isActiveMember).length>=GROUP_CALL_LIMIT){res.status(409).json({error:"group_call_full",limit:GROUP_CALL_LIMIT});return;}
+      if(deps.registry.activeForUser(recipient).some(c=>c.callId!==callId)){res.status(409).json({error:"recipient_busy"});return;}
+      const invitedAt=Date.now();
+      const updated=deps.registry.updateStatus(call.callId,call.status,c=>{
+        c.groupMembers=[...members.filter(m=>!sameUserId(m.userId,recipient)),{userId:recipient,invitationCallId:randomUUID(),previousCallIds:existing?[...(existing.previousCallIds??[]),existing.invitationCallId??c.callId].slice(-16):[],state:"invited",invitedBy:userId,invitedAt,tokenNotBefore:existing?.leftAt?Math.max(Math.floor(existing.leftAt/1000)+1,existing.tokenNotBefore??0):existing?.tokenNotBefore}];
+      });
+      scheduleGroupInviteExpiry(deps.registry,updated.callId,recipient,invitedAt);
+      deps.onCallChanged?.(updated);deps.onCallInvited?.(userId,recipient,callForUser(updated,recipient));
+      res.status(201).json({call:callForUser(updated,userId),limit:GROUP_CALL_LIMIT});
+    } catch(error){next(error);}
+  });
+
   // POST /api/calls/:callId/accept -----------------------------------------
   router.post("/:callId/accept", async (req, res) => {
     const callId = req.params.callId.toLowerCase();
@@ -151,7 +191,7 @@ export function callsRouter(deps: CallsRouterDeps): express.Router {
       res.status(400).json({ error: "invalid_call_id" });
       return;
     }
-    const call = deps.registry.get(callId);
+    const call = currentCall(deps.registry,callId);
     if (!call) {
       logger.warn({ userId, callId }, "[calls] join failed: not found");
       res.status(404).json({ error: "not_found" });
@@ -165,6 +205,15 @@ export function callsRouter(deps: CallsRouterDeps): express.Router {
     if (isTerminal(call.status)) {
       res.status(409).json({ error: "call_terminal", state: call.status });
       return;
+    }
+    if(call.groupMembers) {
+      if(!memberCallMatches(call,userId,callId)){res.status(409).json({error:"stale_invitation"});return;}
+      if(!canJoinCall(call,userId)){res.status(403).json({error:"invitation_not_accepted"});return;}
+      const updated=deps.registry.updateStatus(call.callId,call.status,c=>{
+        c.groupMembers=c.groupMembers!.map(m=>sameUserId(m.userId,userId)?{...m,state:"joined",joinedAt:m.joinedAt??Date.now()}:m);
+        c.participants=c.groupMembers.filter(m=>m.state==="joined"||m.state==="accepted").map(m=>m.userId);
+      });
+      deps.onCallChanged?.(updated);await respondJoin(res,deps,callForUser(updated,userId),userId);return;
     }
     const now = Date.now();
     const updated = deps.registry.updateStatus(
@@ -195,7 +244,7 @@ export function callsRouter(deps: CallsRouterDeps): express.Router {
       res.status(400).json({ error: "invalid_body", issues: parsed.error.issues });
       return;
     }
-    const call = deps.registry.get(callId);
+    const call = currentCall(deps.registry,callId);
     if (!call) {
       res.status(404).json({ error: "not_found" });
       return;
@@ -207,6 +256,13 @@ export function callsRouter(deps: CallsRouterDeps): express.Router {
     if (isTerminal(call.status)) {
       res.status(409).json({ error: "call_terminal", state: call.status });
       return;
+    }
+    if(call.groupMembers) {
+      if(!memberCallMatches(call,userId,callId)){res.status(409).json({error:"stale_invitation"});return;}
+      if(memberFor(call,userId)?.state!=="joined"){res.status(403).json({error:"not_joined"});return;}
+      const updated=deps.registry.updateStatus(call.callId,call.status,c=>{
+        c.groupMembers=c.groupMembers!.map(m=>sameUserId(m.userId,userId)?{...m,mediaReadyAt:parsed.data.audioPublished?m.mediaReadyAt??Date.now():m.mediaReadyAt}:m);
+      });deps.onCallChanged?.(updated);res.json({call:callForUser(updated,userId)});return;
     }
     const now = Date.now();
     const role = sameUserId(call.callerId, userId) ? "caller" : "recipient";
@@ -262,10 +318,15 @@ export function callsRouter(deps: CallsRouterDeps): express.Router {
       res.status(400).json({ error: "invalid_body", issues: parsed.error.issues });
       return;
     }
-    const call = deps.registry.get(parsed.data.callId);
+    const call = currentCall(deps.registry,parsed.data.callId);
     if (!call) {
       res.status(404).json({ error: "not_found" });
       return;
+    }
+    if(call.groupMembers) {
+      if(!memberCallMatches(call,userId,parsed.data.callId)){res.status(409).json({error:"stale_invitation"});return;}
+      if(!memberFor(call,userId)){res.status(403).json({error:"not_participant"});return;}
+      try {const updated=groupAction(deps.registry,call,userId,"decline");deps.onCallChanged?.(updated);res.json({call:callForUser(updated,userId)});}catch {res.status(409).json({error:"invalid_invitation_state"});}return;
     }
     if (!sameUserId(call.calleeId, userId)) {
       res.status(403).json({ error: "not_callee" });
@@ -318,7 +379,7 @@ export function callsRouter(deps: CallsRouterDeps): express.Router {
   // capture "active" as a UUID.
   router.get("/active", (req, res) => {
     const userId = (req as unknown as AuthenticatedRequest).userId;
-    res.json({ calls: deps.registry.activeForUser(userId) });
+    res.json({ calls: deps.registry.activeForUser(userId).map(call=>callForUser(call,userId)) });
   });
 
   // GET /api/calls/:callId ---------------------------------------------------
@@ -329,16 +390,17 @@ export function callsRouter(deps: CallsRouterDeps): express.Router {
       res.status(400).json({ error: "invalid_call_id" });
       return;
     }
-    const call = deps.registry.get(callId);
+    const call = currentCall(deps.registry,callId);
     if (!call) {
       res.status(404).json({ error: "not_found" });
       return;
     }
-    if (!isParticipant(call, userId)) {
+    if (!isParticipant(call, userId) && !memberFor(call,userId)) {
       res.status(403).json({ error: "not_participant" });
       return;
     }
-    res.json({ call });
+    if(call.groupMembers&&!memberCallMatches(call,userId,callId)){res.json({call:{...callForUser(call,userId),callId,id:callId,status:"ended",groupMembers:[],participants:[]}});return;}
+    res.json({ call:callForUser(call,userId) });
   });
 
   return router;
@@ -430,11 +492,19 @@ async function acceptCall(
   callId: string
 ): Promise<void> {
   const userId = (req as unknown as AuthenticatedRequest).userId;
-  const call = deps.registry.get(callId);
+  const call = currentCall(deps.registry,callId);
   if (!call) {
     logger.warn({ userId, callId }, "[calls] accept failed: not found");
     res.status(404).json({ error: "not_found" });
     return;
+  }
+  if(call.groupMembers) {
+    if(!memberCallMatches(call,userId,callId)){res.status(409).json({error:"stale_invitation"});return;}
+    if(!memberFor(call,userId)){res.status(403).json({error:"not_recipient"});return;}
+    if(isTerminal(call.status)){res.status(409).json({error:"call_terminal"});return;}
+    const inviter=memberFor(call,userId)!.invitedBy;
+    if(!await (deps.mayInvite ?? ((a,b)=>mayCommunicate(prisma,a,b)))(inviter,userId)){res.status(403).json({error:"contact_approval_required"});return;}
+    try {const updated=groupAction(deps.registry,call,userId,"accept");deps.onCallChanged?.(updated);respondAccepted(res,callForUser(updated,userId));}catch {res.status(409).json({error:"invitation_closed"});}return;
   }
   if (!sameUserId(call.calleeId, userId)) {
     logger.warn({ userId, callId: call.callId, callerId: call.callerId, calleeId: call.calleeId }, "[calls] accept failed: not recipient");
@@ -495,11 +565,19 @@ function endCall(
   input: { reason?: string; source?: string; endedByUserId?: string; clientOperationId?: string; operationId?: string }
 ): void {
   const userId = (req as unknown as AuthenticatedRequest).userId;
-  const call = deps.registry.get(callId);
+  const call = currentCall(deps.registry,callId);
   const operationId = input.operationId ?? input.clientOperationId ?? randomUUID();
   if (!call) {
     void endPSTNCallFromCallKitUUID({ req, res, deps, callKitUUID: callId, operationId });
     return;
+  }
+  if(call.groupMembers) {
+    if(!memberCallMatches(call,userId,callId)){res.json({call:{...callForUser(call,userId),callId,id:callId,status:"ended",groupMembers:[],participants:[]},alreadyEnded:true});return;}
+    if(!memberFor(call,userId)){res.status(403).json({error:"not_participant"});return;}
+    const alreadyEnded=memberFor(call,userId)?.state==="left";
+    const updated=groupAction(deps.registry,call,userId,"leave");deps.onCallChanged?.(updated);
+    if(deps.livekit)void completeGroupRemoval(deps.registry,call.callId,userId,()=>deps.livekit!.removeParticipant(call.roomName,liveKitParticipantIdentity(userId)));
+    res.json({call:callForUser(updated,userId),alreadyEnded,operationId});return;
   }
   if (!isParticipant(call, userId)) {
     res.status(403).json({ error: "not_participant" });
@@ -644,9 +722,14 @@ async function respondJoin(
   }
   try {
     const participantIdentity = liveKitParticipantIdentity(userId);
+    const notBefore=memberFor(call,userId)?.tokenNotBefore;
+    if(notBefore && notBefore*1000>Date.now())await new Promise(r=>setTimeout(r,notBefore*1000-Date.now()));
+    const latest=currentCall(deps.registry,call.callId);
+    if(!latest||isTerminal(latest.status)||!isParticipant(latest,userId)||!canJoinCall(latest,userId)){res.status(403).json({error:"not_participant"});return;}
     const token = await deps.livekit.issue({
       roomName: call.roomName,
       identity: participantIdentity,
+      displayName: await (deps.displayName?.(userId) ?? prisma.user.findUnique({where:{id:userId},select:{displayName:true}}).then(u=>u?.displayName||"OneWay caller").catch(()=>"OneWay caller")),
       metadata: JSON.stringify({
         userId,
         callId: call.callId,
@@ -654,7 +737,8 @@ async function respondJoin(
         role: sameUserId(call.callerId, userId) ? "caller" : "recipient",
         joinType: "authoritative",
       }),
-      ttlSeconds: 3600,
+      ttlSeconds: 300,
+      minimumNotBefore:call.groupMembers?Math.max(Math.floor(Date.now()/1000),notBefore??0):undefined,
     });
     const role = sameUserId(call.callerId, userId) ? "caller" : "recipient";
     const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString();

@@ -77,6 +77,7 @@ export interface TokenIssueArgs {
   displayName?: string;
   /** Seconds. Default 1 h — long enough for the longest plausible call. */
   ttlSeconds?: number;
+  minimumNotBefore?: number;
   /** Subscribe-only viewers can be locked down with this. Default true. */
   canPublish?: boolean;
   metadata?: string;
@@ -105,6 +106,18 @@ export class LiveKitTokenService {
     );
   }
 
+  async removeParticipant(roomName:string,identity:string):Promise<void> {
+    const jwt=loadJwt();if(!jwt||!this.url||!this.apiKey||!this.apiSecret)throw new Error("livekit_not_configured");
+    const now=Math.floor(Date.now()/1000);
+    const token=jwt.sign({iss:this.apiKey,exp:now+60,nbf:now-5,video:{room:roomName,roomAdmin:true}},this.apiSecret,{algorithm:"HS256",noTimestamp:true});
+    const origin=new URL(this.url.replace(/^ws/,"http")).origin;
+    const response=await fetch(origin+"/twirp/livekit.RoomService/RemoveParticipant",{
+      method:"POST",headers:{Authorization:"Bearer "+token,"Content-Type":"application/json"},
+      body:JSON.stringify({room:roomName,identity,revokeTokenTs:String(now+1)}),signal:AbortSignal.timeout(10000)
+    });
+    if(!response.ok)throw new Error("livekit_participant_removal_failed_"+response.status);
+  }
+
   /** True when env is set AND the sdk is on disk. */
   isConfigured(): boolean {
     return !!(this.url && this.apiKey && this.apiSecret && loadSdk() && loadJwt());
@@ -126,7 +139,7 @@ export class LiveKitTokenService {
       iss: apiKey,
       sub: args.identity,
       exp: nowSeconds + ttlSeconds,
-      nbf: Math.max(0, nowSeconds - nbfSkewSeconds),
+      nbf: Math.max(0, nowSeconds - nbfSkewSeconds, args.minimumNotBefore ?? 0),
       video: {
         room: args.roomName,
         roomJoin: true,

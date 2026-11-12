@@ -85,7 +85,8 @@ export class RedisCallRegistry extends EventEmitter implements ICallRegistry {
     // Local cache first; routes can `await` an explicit refresh if they
     // need strict consistency, but for typical access patterns the cache
     // suffices because pub/sub keeps it warm.
-    return this.cache.get(normalizeCallId(callId));
+    const key=normalizeCallId(callId);
+    return this.cache.get(key) ?? [...this.cache.values()].find(c=>c.groupMembers?.some(m=>m.invitationCallId?.toLowerCase()===key||m.previousCallIds?.some(id=>id.toLowerCase()===key)));
   }
 
   findByRoom(roomName: string): CallSession | undefined {
@@ -98,10 +99,12 @@ export class RedisCallRegistry extends EventEmitter implements ICallRegistry {
     const out: CallSession[] = [];
     for (const call of this.cache.values()) {
       if (isTerminal(call.status)) continue;
+      if (call.groupMembers && !call.groupMembers.some(m => sameUserId(m.userId,userId) && m.state !== "left" && m.state !== "declined")) continue;
       if (
         sameUserId(call.callerId, userId) ||
         sameUserId(call.calleeId, userId) ||
-        call.participants.some((participant) => sameUserId(participant, userId))
+        call.participants.some((participant) => sameUserId(participant, userId)) ||
+        (call.groupMembers ?? []).some(m => sameUserId(m.userId,userId))
       ) {
         out.push(call);
       }
@@ -115,7 +118,8 @@ export class RedisCallRegistry extends EventEmitter implements ICallRegistry {
       if (
         sameUserId(call.callerId, userId) ||
         sameUserId(call.calleeId, userId) ||
-        call.participants.some((participant) => sameUserId(participant, userId))
+        call.participants.some((participant) => sameUserId(participant, userId)) ||
+        (call.groupMembers ?? []).some(m => sameUserId(m.userId,userId))
       ) {
         out.push(call);
       }
@@ -175,7 +179,7 @@ export class RedisCallRegistry extends EventEmitter implements ICallRegistry {
       await this.client.set(`call:${call.callId}`, body, "EX", TTL_SECONDS);
       await this.client.sadd(`user:${call.callerId}:calls`, call.callId);
       await this.client.sadd(`user:${call.calleeId}:calls`, call.callId);
-      for (const p of call.participants) {
+      for (const p of [...call.participants,...(call.groupMembers ?? []).map(m=>m.userId)]) {
         await this.client.sadd(`user:${p}:calls`, call.callId);
       }
       await this.client.expire(`user:${call.callerId}:calls`, TTL_SECONDS);

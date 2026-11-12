@@ -116,6 +116,11 @@ export const inviteRateLimit = () => make({
   message: { error: "rate_limited", message: "too many call invites" },
 });
 
+export const groupInviteRateLimit = () => make({
+  windowMs: 60_000, max: envInt("ONEWAY_GROUP_INVITE_RATE_LIMIT_MAX",12),
+  message: { error: "rate_limited", message: "too many group invites" },
+});
+
 // 30 push registrations / 5 min — covers legit foreground/background cycles.
 export const pushRegisterRateLimit = () => make({
   windowMs: 5 * 60_000, max: 30,

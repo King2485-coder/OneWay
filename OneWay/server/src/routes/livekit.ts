@@ -1,3 +1,4 @@
+import {canJoinCall,memberFor} from "../services/GroupCallMembership";
 import express from "express";
 import { z } from "zod";
 import { authMiddleware, type AuthenticatedRequest } from "../middleware/auth";
@@ -87,7 +88,7 @@ export function liveKitRouter(deps: LiveKitRouterDeps): express.Router {
         });
         return;
       }
-    } else if (!isParticipant(knownCall, userId)) {
+    } else if (!isParticipant(knownCall, userId) || !canJoinCall(knownCall,userId) || ["ended","failed","declined","missed"].includes(knownCall.status)) {
       res.status(403).json({
         error: "not_participant",
         message: "This OneWay room is not authorized for your account.",
@@ -101,6 +102,8 @@ export function liveKitRouter(deps: LiveKitRouterDeps): express.Router {
       const result = await deps.tokens.issue({
         roomName,
         identity,
+        ttlSeconds:300,
+        minimumNotBefore:knownCall?.groupMembers?Math.max(Math.floor(Date.now()/1000),memberFor(knownCall,userId)?.tokenNotBefore??0):undefined,
         displayName,
         metadata: JSON.stringify({
           userId,
@@ -109,7 +112,7 @@ export function liveKitRouter(deps: LiveKitRouterDeps): express.Router {
           callerName: callerIdentity.callerName,
           callerNumber: callerIdentity.callerNumber,
         }),
-        ttlSeconds: 3600,
+
       });
       // Mark the user as a participant on the underlying call so future
       // /api/livekit/token requests for the same room from the same user

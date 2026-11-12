@@ -1,3 +1,4 @@
+import type { GroupCallMember } from "../services/GroupCallMembership";
 /**
  * Shared types for the OneWay calling system.
  *
@@ -55,6 +56,7 @@ export interface CallSession {
                            // so we can change room-naming policy later without
                            // breaking the on-the-wire shape.
   turnEnabled: boolean;    // hint to client; doesn't gate behavior
+  groupMembers?: GroupCallMember[];
   participants: string[];  // userIds currently joined or invited
 }
 
@@ -163,6 +165,7 @@ export function sanitizeRoomName(input: string): string {
 /** True if the user is the caller, callee, or a joined participant. */
 export function isParticipant(call: CallSession, userId: string): boolean {
   const normalizedUserId = normalizeUserIdForCompare(userId);
+  if (call.groupMembers) return call.groupMembers.some(m => normalizeUserIdForCompare(m.userId) === normalizedUserId && m.state !== "left" && m.state !== "declined");
   return (
     normalizeUserIdForCompare(call.callerId) === normalizedUserId ||
     normalizeUserIdForCompare(call.calleeId) === normalizedUserId ||
