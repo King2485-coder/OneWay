@@ -90,7 +90,7 @@ export function accountRouter(): express.Router {
     const hasTwoFreeNumbers = freeNumbers >= 2;
 
     res.json({
-      complete: hasIdentity && hasTwoFreeNumbers,
+      complete: hasIdentity && hasNumber,
       hasIdentity,
       hasNumber,
       hasTwoFreeNumbers,

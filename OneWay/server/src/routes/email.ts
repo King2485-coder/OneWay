@@ -184,6 +184,11 @@ export function emailRouter({ prisma, storage, provider, alerts }: { prisma: Pri
     } catch (error) { respondMailboxError(res, error); }
   });
 
+  router.post("/mailbox/business",async(req,res)=>{try {
+    const input=z.object({address:z.string().min(3).max(254)}).strict().parse(req.body);
+    res.status(201).json({mailbox:await mailbox.claimBusinessAddress((req as AuthenticatedRequest).userId,input.address)});
+  }catch(error){respondMailboxError(res,error);}});
+
   router.get("/messages", async (req, res) => {
     try {
       const parsed = z.object({
@@ -265,7 +270,7 @@ export function emailRouter({ prisma, storage, provider, alerts }: { prisma: Pri
 }
 
 const mailInputSchema = z.object({
-  id: z.string().optional(), threadId: z.string().optional(), to: z.array(z.string()).max(50).default([]),
+  fromAddress:z.string().max(254).optional(), id: z.string().optional(), threadId: z.string().optional(), to: z.array(z.string()).max(50).default([]),
   cc: z.array(z.string()).max(50).optional(), bcc: z.array(z.string()).max(50).optional(), subject: z.string().max(998).optional(),
   bodyText: z.string().max(1_000_000).default(""), bodyHtml: z.string().max(2_000_000).optional(),
 });

@@ -1,4 +1,6 @@
 import { prisma } from "../lib/db";
+import type { PrismaClient } from "@prisma/client";
+import { hasBusinessContactPlan } from "./billing/OneWayBusinessContactPlan";
 import { loadPublicIdentity } from "./identity";
 
 export const EXTRA_NUMBERS_PRODUCT_ID = "oneway.extra_numbers.monthly";
@@ -9,10 +11,10 @@ export interface CallerIdentity {
   callerDisplay: string;
 }
 
-export async function generateUniqueOneWayNumber(): Promise<string> {
+export async function generateUniqueOneWayNumber(db: Pick<PrismaClient, "userNumber"> = prisma): Promise<string> {
   while (true) {
     const number = `OW-${Math.floor(100000 + Math.random() * 900000)}`;
-    const existing = await prisma.userNumber.findUnique({
+    const existing = await db.userNumber.findUnique({
       where: { number },
       select: { id: true },
     });
@@ -22,49 +24,32 @@ export async function generateUniqueOneWayNumber(): Promise<string> {
   }
 }
 
-export async function assignInitialFreeNumbers(userId: string, targetCount = 2): Promise<void> {
-  const existing = await prisma.userNumber.findMany({
-    where: { userId, isPaid: false },
-    orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+export async function assignInitialFreeNumbers(userId: string, _legacyTargetCount = 1, db: PrismaClient = prisma): Promise<void> {
+  // Serialized allocation is idempotent; existing legacy free numbers are preserved.
+  await db.$transaction(async tx => {
+    const existing = await tx.userNumber.count({where: {userId, isPaid: false}});
+    if (existing) return;
+    const total = await tx.userNumber.count({where: {userId}});
+    const number = await generateUniqueOneWayNumber(tx);
+    await tx.userNumber.create({data: {userId, number, label: "Personal", isPrimary: total === 0, isPaid: false}});
   });
-
-  const labels = ["Personal", "Fun"];
-  const created = [...existing];
-  while (created.length < targetCount) {
-    const number = await generateUniqueOneWayNumber();
-    const item = await prisma.userNumber.create({
-      data: {
-        userId,
-        number,
-        label: labels[created.length] ?? "OneWay number",
-        isPrimary: created.length === 0,
-        isPaid: false,
-      },
-    });
-    created.push(item);
-  }
 }
+export async function assignInitialNumber(userId: string): Promise<void> { await assignInitialFreeNumbers(userId); }
+export async function userHasExtraNumberSubscription(userId: string): Promise<boolean> { return hasBusinessContactPlan(prisma, userId); }
 
-export async function assignInitialNumber(userId: string): Promise<void> {
-  await assignInitialFreeNumbers(userId, 2);
-}
-
-export async function userHasExtraNumberSubscription(userId: string): Promise<boolean> {
-  const now = new Date();
-  const active = await prisma.subscription.findFirst({
-    where: {
-      userId,
-      productId: EXTRA_NUMBERS_PRODUCT_ID,
-      status: "active",
-      OR: [
-        { expiresAt: null },
-        { expiresAt: { gt: now } },
-      ],
-    },
-    select: { id: true },
+export class NumberAllocationError extends Error { constructor(public code: string, public status: number) { super(code); } }
+export async function allocateInternalNumber(db: PrismaClient, userId: string, label?: string) {
+  return db.$transaction(async tx => {
+    const freeCount = await tx.userNumber.count({where: {userId,isPaid:false}});
+    const total = await tx.userNumber.count({where:{userId}});
+    const business = freeCount >= 1;
+    if (business) {
+      if (!await hasBusinessContactPlan(tx,userId)) throw new NumberAllocationError("subscription_required",402);
+      if (await tx.userNumber.count({where:{userId,isPaid:true,number:{startsWith:"OW-"}}})) throw new NumberAllocationError("business_number_already_owned",409);
+    }
+    const number = await generateUniqueOneWayNumber(tx);
+    return tx.userNumber.create({data:{userId,number,label:business ? "OneWay Business Number" : "Personal",isPaid:business,isPrimary:total===0}});
   });
-
-  return Boolean(active);
 }
 
 export async function loadCallerIdentity(userId: string): Promise<CallerIdentity> {

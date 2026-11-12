@@ -5,7 +5,7 @@ import { prisma } from "../lib/db";
 import { logger } from "../lib/logger";
 import { authMiddleware, type AuthenticatedRequest } from "../middleware/auth";
 import { ensureUserRecord } from "../services/identity";
-import { generateUniqueOneWayNumber, userHasExtraNumberSubscription } from "../services/numbers";
+import { assignInitialFreeNumbers, allocateInternalNumber, NumberAllocationError, userHasExtraNumberSubscription } from "../services/numbers";
 import { resolveTwilioCampaignStatus } from "../services/sms/twilioCampaignStatus";
 
 const createSchema = z.object({
@@ -48,9 +48,11 @@ export function numbersRouter(): express.Router {
     res.json({
       numbers,
       billing: {
-        freeIncluded: 2,
-        extraNumberPriceMonthly: 7.99,
+        freeIncluded: 1,
+        extraNumberPriceMonthly: 5,
         hasExtraNumbersSubscription: hasSubscription,
+        businessEmailIncluded: true,
+        legacyIncluded: Math.max(0, numbers.filter(n => !n.isPaid).length - 1),
       },
     });
   });
@@ -168,7 +170,7 @@ export function numbersRouter(): express.Router {
     }
   });
 
-  router.post("/create", async (req, res) => {
+  router.post("/create", async (req, res, next) => {
     const userId = (req as unknown as AuthenticatedRequest).userId;
     await ensureUserRecord(userId);
     const parsed = createSchema.safeParse(req.body ?? {});
@@ -177,64 +179,21 @@ export function numbersRouter(): express.Router {
       return;
     }
 
-    const count = await prisma.userNumber.count({ where: { userId } });
-    if (count >= 2) {
-      const hasSubscription = await userHasExtraNumberSubscription(userId);
-      if (!hasSubscription) {
-        res.status(402).json({
-          error: "subscription_required",
-          message: "Extra numbers require $7.99/month",
-        });
-        return;
-      }
+    try {
+      res.status(201).json(await allocateInternalNumber(prisma,userId,parsed.data.label));
+    } catch(error) {
+      if (error instanceof NumberAllocationError) return res.status(error.status).json({error:error.code,message:error.status===402 ? "OneWay Business Number and business email are $5/month." : "Your plan already includes one business number."});
+      next(error);
     }
-
-    const number = await generateUniqueOneWayNumber();
-    const created = await prisma.userNumber.create({
-      data: {
-        userId,
-        number,
-        label: parsed.data.label,
-        isPaid: count >= 2,
-        isPrimary: count === 0,
-      },
-    });
-
-    res.status(201).json(created);
   });
 
-  router.post("/claim-free", async (req, res) => {
-    const userId = (req as unknown as AuthenticatedRequest).userId;
-    await ensureUserRecord(userId);
-
-    const existing = await prisma.userNumber.findMany({
-      where: { userId },
-      orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-    });
-
-    const labels = ["Personal", "Fun"];
-    const created: typeof existing = [...existing];
-
-    while (created.length < 2) {
-      const number = await generateUniqueOneWayNumber();
-      const item = await prisma.userNumber.create({
-        data: {
-          userId,
-          number,
-          label: labels[created.length] ?? "OneWay number",
-          isPaid: false,
-          isPrimary: created.length === 0,
-        },
-      });
-      created.push(item);
-    }
-
-    const normalized = await prisma.userNumber.findMany({
-      where: { userId },
-      orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-      take: 2,
-    });
-    res.status(201).json(normalized);
+  router.post("/claim-free", async (req,res,next) => {
+    try {
+      const userId=(req as unknown as AuthenticatedRequest).userId;
+      await ensureUserRecord(userId);
+      await assignInitialFreeNumbers(userId);
+      res.status(201).json(await prisma.userNumber.findMany({where:{userId},orderBy:[{isPrimary:"desc"},{createdAt:"asc"}]}));
+    } catch(error) { next(error); }
   });
 
   router.patch("/:id/primary", async (req, res) => {

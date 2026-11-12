@@ -27,6 +27,7 @@
     "security:check": "node scripts/security-check.js all"
   },
   "dependencies": {
+    "@apple/app-store-server-library": "^3.1.0",
     "@aws-sdk/client-s3": "^3.658.0",
     "@aws-sdk/s3-request-presigner": "^3.658.0",
     "@prisma/client": "^5.11.0",

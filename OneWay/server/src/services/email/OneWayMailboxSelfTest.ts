@@ -46,7 +46,7 @@ async function main() {
   const alice = "00000000-0000-4000-8000-000000000001";
   const bob = "00000000-0000-4000-8000-000000000002";
   try {
-    await prisma.user.createMany({ data: [{ id: alice, displayName: "Alice" }, { id: bob, displayName: "Bob" }] });
+    await prisma.$executeRawUnsafe(`INSERT INTO "User" ("id","displayName") VALUES (?,?),(?,?)`,alice,"Alice",bob,"Bob");
     const claimed = await service.claim(alice, "alice@oneway.is");
     assert.equal(claimed.address, "alice@oneway.is");
     assert.equal((await service.claim(alice, "other@oneway.is")).address, "alice@oneway.is", "claim is idempotent");

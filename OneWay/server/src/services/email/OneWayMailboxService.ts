@@ -1,3 +1,4 @@
+import {hasBusinessContactPlan} from "../billing/OneWayBusinessContactPlan";
 import type { PrismaClient } from "@prisma/client";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { ObjectStorage } from "../../lib/storage/ObjectStorage";
@@ -38,6 +39,8 @@ export class OneWayMailboxService {
   ) {}
 
   async ensureTables(): Promise<void> {
+    await this.prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "EmailBusinessAddress" ("id" TEXT PRIMARY KEY,"userId" TEXT NOT NULL UNIQUE,"mailboxId" TEXT NOT NULL,"address" TEXT NOT NULL UNIQUE,"createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY("userId") REFERENCES "User"("id") ON DELETE CASCADE,FOREIGN KEY("mailboxId") REFERENCES "EmailMailbox"("id") ON DELETE CASCADE)`);
+
     await this.prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "EmailMailbox" (
       "id" TEXT NOT NULL PRIMARY KEY, "userId" TEXT NOT NULL UNIQUE, "address" TEXT NOT NULL UNIQUE,
       "status" TEXT NOT NULL DEFAULT 'active', "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -101,31 +104,7 @@ export class OneWayMailboxService {
     await this.prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "EmailLabel_mailboxId_name_key" ON "EmailLabel"("mailboxId","name")`);
   }
 
-  readiness() {
-    const missing: string[] = [];
-    if (this.provider.name !== "mailgun") missing.push("EMAIL_PROVIDER=mailgun");
-    for (const key of ["MAILGUN_API_KEY", "MAILGUN_WEBHOOK_SIGNING_KEY", "ONEWAY_EMAIL_DOMAIN"]) {
-      if (!process.env[key]?.trim()) missing.push(key);
-    }
-    if (process.env.FIELD_ENCRYPTION_ENABLED !== "true") missing.push("FIELD_ENCRYPTION_ENABLED=true");
-    if (!process.env.FIELD_HASH_KEY_BASE64?.trim()) missing.push("FIELD_HASH_KEY_BASE64");
-    const launchAttestations = [
-      "ONEWAY_EMAIL_DNS_VERIFIED", "ONEWAY_EMAIL_INBOUND_VERIFIED", "ONEWAY_EMAIL_GMAIL_DELIVERY_VERIFIED",
-      "ONEWAY_EMAIL_OUTLOOK_DELIVERY_VERIFIED", "ONEWAY_EMAIL_BOUNCE_VERIFIED", "ONEWAY_EMAIL_COMPLAINT_VERIFIED",
-      "ONEWAY_EMAIL_MALWARE_SCANNER_ENABLED", "ONEWAY_EMAIL_PUSH_ENABLED", "ONEWAY_EMAIL_TERMS_PUBLISHED",
-      "ONEWAY_EMAIL_SUPPORT_READY", "ONEWAY_EMAIL_PRICING_COSTS_APPROVED",
-    ];
-    for (const key of launchAttestations) if (process.env[key] !== "true") missing.push(`${key}=true`);
-    return {
-      ready: missing.length === 0,
-      liveDeliveryEnabled: missing.length === 0 && process.env.ONEWAY_EMAIL_LIVE_DELIVERY_ENABLED === "true",
-      verificationModeEnabled: this.verificationModeReady(),
-      provider: this.provider.name,
-      domain: MAILBOX_DOMAIN(),
-      missing,
-      dnsRequired: ["MX", "SPF", "DKIM", "DMARC"],
-    };
-  }
+  readiness() { return emailReadiness(this.provider.name,this.verificationModeReady()); }
 
   async claim(userId: string, requested?: string): Promise<Record<string, unknown>> {
     await this.ensureTables();
@@ -136,10 +115,11 @@ export class OneWayMailboxService {
     const identityLocalPart = identity?.emailAlias?.split("@")[0] || "";
     const address = this.validateAddress(requested || (identityLocalPart ? `${identityLocalPart}@${MAILBOX_DOMAIN()}` : ""));
     try {
-      await this.prisma.$executeRawUnsafe(
-        `INSERT INTO "EmailMailbox" ("id", "userId", "address", "status") VALUES (?, ?, ?, 'active')`,
-        randomUUID(), userId, address,
-      );
+      await this.prisma.$transaction(async tx => {
+        const aliases=await tx.$queryRawUnsafe<{id:string}[]>(`SELECT "id" FROM "EmailBusinessAddress" WHERE "address"=?`,address);
+        if(aliases.length) throw new MailboxError("address_unavailable",409);
+        await tx.$executeRawUnsafe(`INSERT INTO "EmailMailbox" ("id","userId","address","status","updatedAt") VALUES (?,?,?,'active',CURRENT_TIMESTAMP)`,randomUUID(),userId,address);
+      });
     } catch (error) {
       if (String(error).toLowerCase().includes("unique")) throw new MailboxError("address_unavailable", 409);
       throw error;
@@ -147,6 +127,36 @@ export class OneWayMailboxService {
     const mailbox = await this.mailboxForUser(userId);
     if (!mailbox) throw new MailboxError("mailbox_create_failed", 500);
     return this.publicMailbox(mailbox);
+  }
+
+  async claimBusinessAddress(userId: string, requested: string) {
+    await this.ensureTables();
+    if (!await hasBusinessContactPlan(this.prisma,userId)) throw new MailboxError("business_subscription_required",402,"A OneWay Business Number subscription includes your business email for $5/month.");
+    const existing = await this.businessAddress(userId);
+    if(existing) {
+      if(existing.address !== this.validateAddress(requested)) throw new MailboxError("business_address_already_claimed",409);
+      return this.getMailbox(userId);
+    }
+    await this.claim(userId);
+    const mailbox=await this.requireMailbox(userId);
+    const address=this.validateAddress(requested);
+    try { await this.prisma.$transaction(async tx => {
+      const used=await tx.$queryRawUnsafe<{id:string}[]>(`SELECT "id" FROM "EmailMailbox" WHERE "address"=?`,address);
+      if(used.length) throw new MailboxError("address_unavailable",409);
+      await tx.$executeRawUnsafe(`INSERT INTO "EmailBusinessAddress" ("id","userId","mailboxId","address") VALUES (?,?,?,?)`,randomUUID(),userId,mailbox.id,address);
+    }); } catch(error) { if(String(error).toLowerCase().includes("unique")) throw new MailboxError("address_unavailable",409); throw error; }
+    return this.getMailbox(userId);
+  }
+  private async businessAddress(userId:string) {
+    const rows=await this.prisma.$queryRawUnsafe<{address:string}[]>(`SELECT "address" FROM "EmailBusinessAddress" WHERE "userId"=? LIMIT 1`,userId);
+    if(!rows[0]) return null;
+    return {address:rows[0].address,active:await hasBusinessContactPlan(this.prisma,userId)};
+  }
+  private async senderAddress(userId:string, mailbox:MailboxRow, requested?:string) {
+    if(!requested || normalizeEmail(requested)===mailbox.address) return mailbox.address;
+    const business=await this.businessAddress(userId);
+    if(!business?.active || business.address!==normalizeEmail(requested)) throw new MailboxError("sender_not_available",403,"Choose your personal address or an active business email address you own.");
+    return business.address;
   }
 
   async getMailbox(userId: string): Promise<Record<string, unknown> | null> {
@@ -191,12 +201,13 @@ export class OneWayMailboxService {
     const threadId = input.threadId || randomUUID();
     this.validateRecipients(input, false);
     await this.ensureThread(mailbox.id, threadId, input.subject || "");
-    const fields = this.protectedFields(id, mailbox.address, input);
+    const sender=await this.senderAddress(userId,mailbox,input.fromAddress);
+    const fields = this.protectedFields(id, sender, input);
     const prior = await this.prisma.$queryRawUnsafe<Array<{ id: string }>>(`SELECT "id" FROM "EmailMessage" WHERE "id" = ? AND "mailboxId" = ? AND "folder" = 'drafts'`, id, mailbox.id);
     if (prior.length) {
-      await this.prisma.$executeRawUnsafe(`UPDATE "EmailMessage" SET "toJson"=?, "ccJson"=?, "bccJson"=?, "subject"=?, "bodyText"=?, "bodyHtml"=?, "updatedAt"=CURRENT_TIMESTAMP WHERE "id"=? AND "mailboxId"=?`, fields.to, fields.cc, fields.bcc, fields.subject, fields.text, fields.html, id, mailbox.id);
+      await this.prisma.$executeRawUnsafe(`UPDATE "EmailMessage" SET "fromJson"=?, "toJson"=?, "ccJson"=?, "bccJson"=?, "subject"=?, "bodyText"=?, "bodyHtml"=?, "updatedAt"=CURRENT_TIMESTAMP WHERE "id"=? AND "mailboxId"=?`, fields.from, fields.to, fields.cc, fields.bcc, fields.subject, fields.text, fields.html, id, mailbox.id);
     } else {
-      await this.prisma.$executeRawUnsafe(`INSERT INTO "EmailMessage" ("id","threadId","mailboxId","direction","folder","fromJson","toJson","ccJson","bccJson","subject","bodyText","bodyHtml","status","isRead") VALUES (?,?,?,'outbound','drafts',?,?,?,?,?,?,?,'draft',true)`, id, threadId, mailbox.id, fields.from, fields.to, fields.cc, fields.bcc, fields.subject, fields.text, fields.html);
+      await this.prisma.$executeRawUnsafe(`INSERT INTO "EmailMessage" ("id","threadId","mailboxId","direction","folder","fromJson","toJson","ccJson","bccJson","subject","bodyText","bodyHtml","status","isRead","updatedAt") VALUES (?,?,?,'outbound','drafts',?,?,?,?,?,?,?,'draft',true,CURRENT_TIMESTAMP)`, id, threadId, mailbox.id, fields.from, fields.to, fields.cc, fields.bcc, fields.subject, fields.text, fields.html);
     }
     return this.messageById(mailbox.id, id);
   }
@@ -204,6 +215,7 @@ export class OneWayMailboxService {
   async send(userId: string, input: MailInput & { draftId?: string; threadId?: string; inReplyTo?: string; references?: string[] }) {
     const mailbox = await this.requireMailbox(userId);
     this.validateRecipients(input, true);
+    const sender=await this.senderAddress(userId,mailbox,input.fromAddress);
     const readiness = this.readiness();
     const verificationMode = !readiness.liveDeliveryEnabled && readiness.verificationModeEnabled;
     if (!readiness.liveDeliveryEnabled && !verificationMode) {
@@ -239,6 +251,12 @@ export class OneWayMailboxService {
 
     const messageId = input.draftId || randomUUID();
     const threadId = input.threadId || randomUUID();
+    if(input.draftId) {
+      const owned=await this.prisma.$queryRawUnsafe<{id:string}[]>(`SELECT "id" FROM "EmailMessage" WHERE "id"=? AND "mailboxId"=? AND "folder"='drafts'`,input.draftId,mailbox.id);
+      if(!owned.length) throw new MailboxError("draft_not_found",404);
+    }
+    await this.ensureThread(mailbox.id,threadId,input.subject || "");
+
     const attachments = input.attachments ?? [];
     const totalBytes = attachments.reduce((sum, item) => sum + item.data.length, 0);
     if (attachments.length > 10 || totalBytes > Number(process.env.ONEWAY_EMAIL_MAX_ATTACHMENT_BYTES || 25_000_000)) throw new MailboxError("attachment_limit_exceeded", 413);
@@ -252,15 +270,15 @@ export class OneWayMailboxService {
     }
     if (suppressed.length) throw new MailboxError("recipient_suppressed", 409, "One or more recipients are suppressed after a bounce or complaint.");
     const result = await this.provider.sendOutboundMessage({
-      fromUserId: userId, fromEmail: mailbox.address, toEmail: input.to[0], toEmails: input.to, ccEmails: input.cc, bccEmails: input.bcc,
+      fromUserId: userId, fromEmail: sender, toEmail: input.to[0], toEmails: input.to, ccEmails: input.cc, bccEmails: input.bcc,
       subject: input.subject, body: input.bodyText, htmlBody: input.bodyHtml, messageSessionId: messageId,
       inReplyTo: input.inReplyTo, references: input.references, attachments,
     });
     if (result.status === "failed") throw new MailboxError("provider_send_failed", 502, result.message);
     await this.ensureThread(mailbox.id, threadId, input.subject || "");
-    const fields = this.protectedFields(messageId, mailbox.address, input);
+    const fields = this.protectedFields(messageId, sender, input);
     if (input.draftId) await this.prisma.$executeRawUnsafe(`DELETE FROM "EmailMessage" WHERE "id"=? AND "mailboxId"=? AND "folder"='drafts'`, input.draftId, mailbox.id);
-    await this.prisma.$executeRawUnsafe(`INSERT INTO "EmailMessage" ("id","threadId","mailboxId","providerMessageId","direction","folder","fromJson","toJson","ccJson","bccJson","subject","bodyText","bodyHtml","status","isRead","sentAt") VALUES (?,?,?,?,'outbound','sent',?,?,?,?,?,?,?,'queued',true,CURRENT_TIMESTAMP)`, messageId, threadId, mailbox.id, result.providerMessageId, fields.from, fields.to, fields.cc, fields.bcc, fields.subject, fields.text, fields.html);
+    await this.prisma.$executeRawUnsafe(`INSERT INTO "EmailMessage" ("id","threadId","mailboxId","providerMessageId","direction","folder","fromJson","toJson","ccJson","bccJson","subject","bodyText","bodyHtml","status","isRead","sentAt","updatedAt") VALUES (?,?,?,?,'outbound','sent',?,?,?,?,?,?,?,'queued',true,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, messageId, threadId, mailbox.id, result.providerMessageId, fields.from, fields.to, fields.cc, fields.bcc, fields.subject, fields.text, fields.html);
     await this.storeAttachments(messageId, attachments);
     await this.touchThread(threadId);
     return this.messageById(mailbox.id, messageId);
@@ -331,10 +349,14 @@ export class OneWayMailboxService {
     const address = normalizeEmail(input.recipient);
     if (!address) throw new MailboxError("invalid_recipient");
     const mailboxes = await this.prisma.$queryRawUnsafe<MailboxRow[]>(`SELECT * FROM "EmailMailbox" WHERE "address"=? AND "status"='active' LIMIT 1`, address);
-    const mailbox = mailboxes[0];
+    let mailbox = mailboxes[0];
+    if(!mailbox) {
+      const alias=(await this.prisma.$queryRawUnsafe<{userId:string;mailboxId:string}[]>(`SELECT "userId","mailboxId" FROM "EmailBusinessAddress" WHERE "address"=? LIMIT 1`,address))[0];
+      if(alias && await hasBusinessContactPlan(this.prisma,alias.userId)) mailbox=(await this.prisma.$queryRawUnsafe<MailboxRow[]>(`SELECT * FROM "EmailMailbox" WHERE "id"=? AND "status"='active' LIMIT 1`,alias.mailboxId))[0];
+    }
     if (!mailbox) throw new MailboxError("unknown_recipient", 406);
     const providerId = input.messageId || `mailgun:${input.token}`;
-    const duplicate = await this.prisma.$queryRawUnsafe<Array<{ id: string }>>(`SELECT "id" FROM "EmailMessage" WHERE "providerMessageId"=? LIMIT 1`, providerId);
+    const duplicate = await this.prisma.$queryRawUnsafe<Array<{ id: string }>>(`SELECT "id" FROM "EmailMessage" WHERE "providerMessageId"=? AND "mailboxId"=? LIMIT 1`, providerId, mailbox.id);
     if (duplicate.length) return { accepted: true, duplicate: true, messageId: duplicate[0].id };
     await this.prisma.$executeRawUnsafe(`INSERT INTO "EmailWebhookReceipt" ("token","provider") VALUES (?,'mailgun')`, input.token);
 
@@ -348,7 +370,7 @@ export class OneWayMailboxService {
     const data: MailInput = { to: [address], cc: input.cc, bcc: [], subject: input.subject, bodyText: input.bodyText, bodyHtml: input.bodyHtml };
     const fields = this.protectedFields(messageId, sender, data);
     const folder: MailFolder = blocked.length || spam ? "spam" : "inbox";
-    await this.prisma.$executeRawUnsafe(`INSERT INTO "EmailMessage" ("id","threadId","mailboxId","providerMessageId","direction","folder","fromJson","toJson","ccJson","bccJson","subject","bodyText","bodyHtml","status","isRead","spamScore","headersJson","receivedAt") VALUES (?,?,?,?,'inbound',?,?,?,?,?,?,?,?,'received',false,?,?,CURRENT_TIMESTAMP)`, messageId, threadId, mailbox.id, providerId, folder, fields.from, fields.to, fields.cc, fields.bcc, fields.subject, fields.text, fields.html, input.spamScore ?? null, encryptIfEnabled(JSON.stringify(input.headers || {}), `email-message:${messageId}:headers`));
+    await this.prisma.$executeRawUnsafe(`INSERT INTO "EmailMessage" ("id","threadId","mailboxId","providerMessageId","direction","folder","fromJson","toJson","ccJson","bccJson","subject","bodyText","bodyHtml","status","isRead","spamScore","headersJson","receivedAt","updatedAt") VALUES (?,?,?,?,'inbound',?,?,?,?,?,?,?,?,'received',false,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, messageId, threadId, mailbox.id, providerId, folder, fields.from, fields.to, fields.cc, fields.bcc, fields.subject, fields.text, fields.html, input.spamScore ?? null, encryptIfEnabled(JSON.stringify(input.headers || {}), `email-message:${messageId}:headers`));
     await this.storeAttachments(messageId, files.map((file) => ({ filename: file.originalname, contentType: file.mimetype, data: file.buffer })));
     await this.touchThread(threadId);
     if (folder === "inbox") {
@@ -397,7 +419,7 @@ export class OneWayMailboxService {
     if (!row) throw new MailboxError("mailbox_not_claimed", 404);
     return row;
   }
-  private publicMailbox(row: MailboxRow) { return { id: row.id, address: row.address, status: row.status, createdAt: iso(row.createdAt), readiness: this.readiness() }; }
+  private async publicMailbox(row: MailboxRow) { return { id: row.id, address: row.address, status: row.status, createdAt: iso(row.createdAt), readiness: this.readiness(), businessAddress: await this.businessAddress(row.userId) }; }
   private validateAddress(raw: string) {
     const candidate = raw.includes("@") ? raw.toLowerCase() : `${raw.toLowerCase()}@${MAILBOX_DOMAIN()}`;
     const [local, domain, extra] = candidate.split("@");
@@ -439,8 +461,11 @@ export class OneWayMailboxService {
     };
   }
   private async ensureThread(mailboxId: string, id: string, subject: string) {
+    const prior=await this.prisma.$queryRawUnsafe<{mailboxId:string}[]>(`SELECT "mailboxId" FROM "EmailThread" WHERE "id"=? LIMIT 1`,id);
+    if(prior[0] && prior[0].mailboxId!==mailboxId) throw new MailboxError("thread_not_found",404);
+
     const protectedSubject = encryptIfEnabled(sanitizeEmailText(subject).slice(0, 300), `email-thread:${id}:subject`);
-    await this.prisma.$executeRawUnsafe(`INSERT OR IGNORE INTO "EmailThread" ("id","mailboxId","subjectPreview") VALUES (?,?,?)`, id, mailboxId, protectedSubject);
+    await this.prisma.$executeRawUnsafe(`INSERT OR IGNORE INTO "EmailThread" ("id","mailboxId","subjectPreview","updatedAt") VALUES (?,?,?,CURRENT_TIMESTAMP)`, id, mailboxId, protectedSubject);
   }
   private async touchThread(id: string) { await this.prisma.$executeRawUnsafe(`UPDATE "EmailThread" SET "lastMessageAt"=CURRENT_TIMESTAMP,"updatedAt"=CURRENT_TIMESTAMP WHERE "id"=?`, id); }
   private async storeAttachments(messageId: string, attachments: Array<{ filename: string; contentType: string; data: Buffer }>) {
@@ -497,7 +522,7 @@ export class OneWayMailboxService {
 }
 
 export type MailInput = {
-  to: string[]; cc?: string[]; bcc?: string[]; subject?: string; bodyText: string; bodyHtml?: string;
+  fromAddress?: string; to: string[]; cc?: string[]; bcc?: string[]; subject?: string; bodyText: string; bodyHtml?: string;
   attachments?: Array<{ filename: string; contentType: string; data: Buffer }>;
 };
 export type InboundMail = {
@@ -520,3 +545,29 @@ function deliveryStatus(event: string): string | null {
 }
 function iso(value: string | Date) { return new Date(value).toISOString(); }
 function isoOrNull(value: string | Date | null) { return value ? iso(value) : null; }
+
+export function emailReadiness(provider: EmailProvider["name"], verificationModeEnabled = false) {
+    const missing: string[] = [];
+    if (provider !== "mailgun") missing.push("EMAIL_PROVIDER=mailgun");
+    for (const key of ["MAILGUN_API_KEY", "MAILGUN_WEBHOOK_SIGNING_KEY", "ONEWAY_EMAIL_DOMAIN"]) {
+      if (!process.env[key]?.trim()) missing.push(key);
+    }
+    if (process.env.FIELD_ENCRYPTION_ENABLED !== "true") missing.push("FIELD_ENCRYPTION_ENABLED=true");
+    if (!process.env.FIELD_HASH_KEY_BASE64?.trim()) missing.push("FIELD_HASH_KEY_BASE64");
+    const launchAttestations = [
+      "ONEWAY_EMAIL_DNS_VERIFIED", "ONEWAY_EMAIL_INBOUND_VERIFIED", "ONEWAY_EMAIL_GMAIL_DELIVERY_VERIFIED",
+      "ONEWAY_EMAIL_OUTLOOK_DELIVERY_VERIFIED", "ONEWAY_EMAIL_BOUNCE_VERIFIED", "ONEWAY_EMAIL_COMPLAINT_VERIFIED",
+      "ONEWAY_EMAIL_MALWARE_SCANNER_ENABLED", "ONEWAY_EMAIL_PUSH_ENABLED", "ONEWAY_EMAIL_TERMS_PUBLISHED",
+      "ONEWAY_EMAIL_SUPPORT_READY", "ONEWAY_EMAIL_PRICING_COSTS_APPROVED",
+    ];
+    for (const key of launchAttestations) if (process.env[key] !== "true") missing.push(`${key}=true`);
+    return {
+      ready: missing.length === 0,
+      liveDeliveryEnabled: missing.length === 0 && process.env.ONEWAY_EMAIL_LIVE_DELIVERY_ENABLED === "true",
+      verificationModeEnabled: verificationModeEnabled,
+      provider: provider,
+      domain: MAILBOX_DOMAIN(),
+      missing,
+      dnsRequired: ["MX", "SPF", "DKIM", "DMARC"],
+    };
+  }

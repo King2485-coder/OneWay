@@ -281,7 +281,7 @@ export const PUBLIC_SITE_PAGES: Record<string, Page> = {
           <h2>Clear prices for the extras you choose.</h2>
         </div>
         <div class="addon-grid">
-          <article><p class="mini-label">Numbers</p><h3>$7.99/month</h3><p>Add more OneWay numbers after your first two included numbers.</p></article>
+          <article><p class="mini-label">OneWay Business Number</p><h3>$5/month</h3><p>One personal OneWay number is included. Add one business number and a business email address.</p></article>
           <article><p class="mini-label">OneWay domain</p><h3>$3.99/year</h3><p>Claim a renewable <strong>.oneway.app</strong> name for Sites, Shops, or your public identity.</p></article>
           <article><p class="mini-label">Start selling</p><h3>Included</h3><p>Your first Shop and 10 active product listings are included.</p></article>
           <article><p class="mini-label">Seller Pro</p><h3>$14.99/month</h3><p>Unlimited listings, up to 10 Shops, advanced analytics, and priority seller benefits as available.</p></article>
