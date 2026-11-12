@@ -1599,6 +1599,7 @@ model SocialProfile {
   blocksMade   SocialBlock[] @relation("SocialBlocker")
   blocksReceived SocialBlock[] @relation("SocialBlocked")
   reports      SocialReport[]
+  comments     SocialComment[]
 }
 
 model SocialPost {
@@ -1609,6 +1610,7 @@ model SocialPost {
   createdAt DateTime @default(now())
   author    SocialProfile @relation(fields: [authorId], references: [userId], onDelete: Cascade)
   reports   SocialReport[]
+  comments  SocialComment[]
   @@index([authorId, createdAt, id])
   @@index([audience, createdAt, id])
 }
@@ -1644,4 +1646,31 @@ model SocialReport {
   post       SocialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
   @@unique([reporterId, postId])
   @@index([status, createdAt])
+}
+
+model SocialComment {
+  id         String @id @default(uuid())
+  postId     String
+  authorId   String
+  body       String @default("")
+  kind       String @default("text")
+  storageKey String?
+  mimeType   String?
+  fileName   String?
+  byteCount  Int?
+  createdAt  DateTime @default(now())
+  post       SocialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author     SocialProfile @relation(fields: [authorId], references: [userId], onDelete: Cascade)
+  reports    SocialCommentReport[]
+  @@index([postId, createdAt, id])
+}
+
+model SocialCommentReport {
+  id         String @id @default(uuid())
+  commentId  String
+  reporterId String
+  reason     String
+  createdAt  DateTime @default(now())
+  comment    SocialComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  @@unique([reporterId, commentId])
 }

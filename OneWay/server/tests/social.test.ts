@@ -368,3 +368,39 @@ test("profile decoration persists independently from website tools and older cli
   assert.deepEqual((await call(owner, "/me")).data.profile.pageDesign, design);
   assert.equal(await prisma.site.count({where:{userId:owner}}), 0);
 });
+
+test("public comments support emoji, GIF, memes and voice with privacy and deletion controls", async () => {
+  const a=randomUUID(),b=randomUUID(),c=randomUUID();
+  for(const user of [a,b,c]){await prisma.user.create({data:{id:user,email:user+"@comments.test",displayName:"private account",passwordHash:"test"}});assert.equal((await call(user,"/me","PUT",profile("c"+user.replaceAll("-","").slice(0,12)))).status,200);}
+  const post=(await call(a,"/posts","POST",{body:"Comment fixture",audience:"public"})).data.post;
+  const path=`/posts/${post.id}/comments`;const clientId=randomUUID();
+  const sent=await call(b,path,"POST",{body:"Love this 😂💜",clientId});assert.equal(sent.status,201);assert.equal(sent.data.comment.body,"Love this 😂💜");assert.equal(sent.data.comment.canDelete,true);
+  assert.equal((await call(b,path,"POST",{body:"Love this 😂💜",clientId})).status,200);
+  assert.equal((await call(c,path,"POST",{body:"Take over",clientId})).status,409);
+  assert.equal((await call(a,path)).data.total,1);
+  const png=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+yY7sAAAAASUVORK5CYII=","base64");
+  const gif=Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7","base64");
+  const audio=Buffer.concat([Buffer.from([0,0,0,24]),Buffer.from("ftypM4A "),Buffer.alloc(20)]);
+  const uploaded=[];
+  for(const [mime,name,bytes,kind] of [["image/png","meme.png",png,"image"],["image/gif","reply.gif",gif,"gif"],["audio/mp4","voice.m4a",audio,"audio"]] as const){
+    const f=new FormData();f.set("file",new Blob([bytes],{type:mime}),name);f.set("clientId",randomUUID());f.set("body","");
+    const response=await fetch(base+path+"/media",{method:"POST",headers:{"x-test-user":b},body:f});assert.equal(response.status,201);const {comment}=await response.json() as any;assert.equal(comment.kind,kind);assert.equal(comment.storageKey,undefined);uploaded.push(comment);
+    const download=await fetch(base+path+`/${comment.id}/media`,{headers:{"x-test-user":a}});assert.equal(download.status,200);assert.deepEqual(Buffer.from(await download.arrayBuffer()),bytes);
+    const stored=await prisma.socialComment.findUniqueOrThrow({where:{id:comment.id}});assert.equal(objects.get(stored.storageKey!)!.toString().includes(bytes.toString("base64")),false);
+  }
+  assert.equal((await call(c,path)).data.total,4);
+  const f=new FormData();f.set("file",new Blob(["<script>bad</script>"],{type:"text/html"}),"bad.html");f.set("clientId",randomUUID());assert.equal((await fetch(base+path+"/media",{method:"POST",headers:{"x-test-user":b},body:f})).status,400);
+  assert.equal((await call(c,path+`/${uploaded[0].id}`,"DELETE")).status,404);
+  assert.equal((await call(c,path+`/${uploaded[0].id}/reports`,"POST",{reason:"spam"})).status,202);
+  assert.equal((await call(c,`/blocks/${b}`,"PUT")).status,204);
+  assert.equal((await call(c,path)).data.total,0);
+  assert.equal((await fetch(base+path+`/${uploaded[0].id}/media`,{headers:{"x-test-user":c}})).status,404);
+  assert.equal((await call(a,path+`/${uploaded[0].id}`,"DELETE")).status,204);
+  await setGhostMode(prisma,b,true);
+  assert.equal((await call(b,path,"POST",{body:"Hidden reply",clientId:randomUUID()})).status,409);
+  assert.equal((await call(a,path)).data.total,0);
+  await setGhostMode(prisma,b,false);
+  await call(a,`/posts/${post.id}`,"PATCH",{body:post.body,audience:"followers",expectedBody:post.body,expectedAudience:"public"});
+  assert.equal((await call(b,path)).status,404);
+  assert.equal((await fetch(base+path+`/${uploaded[1].id}/media`,{headers:{"x-test-user":b}})).status,404);
+});

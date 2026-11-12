@@ -1,3 +1,4 @@
+import { socialCommentsRouter } from "./socialComments";
 import { ghostMode, ghostUsers, approvedContacts } from "../services/AccountVisibility";
 import { contactOptions, selectedContact, contactDisplayKey } from "../services/SocialProfileContact";
 import express, { type RequestHandler } from "express";
@@ -57,7 +58,7 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
     return f && f.encrypted && f.storageKey.startsWith(prefix(owner)) && ["image/jpeg", "image/png"].includes(f.mimeType) && Number(f.byteCount) <= 256 * 1024 ? f : null;
   }
   const enabled = deps.enabled ?? (() => process.env.ONEWAY_SOCIAL_ENABLED === "true");
-  router.get("/status", (_req, res) => { res.json({ enabled: enabled(), version: 6, pageDesign: true, ghostMode: true, contactDisplay: true, postEditing: true, postAvatars: true, profileMedia: mediaReady(), profileCustomization: true }); });
+  router.get("/status", (_req, res) => { res.json({ enabled: enabled(), version: 7, comments: true, commentMedia: mediaReady(), pageDesign: true, ghostMode: true, contactDisplay: true, postEditing: true, postAvatars: true, profileMedia: mediaReady(), profileCustomization: true }); });
   router.use((req, res, next) => { if (!enabled()) { res.status(503).json({ error: "social_not_enabled" }); return; } next(); });
   router.use((_req, res, next) => { res.set("Cache-Control", "private, no-store"); next(); });
   router.use(deps.authenticate);
@@ -130,6 +131,10 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
     return {...post, author: {...post.author, publicContact: await selectedContact(prisma, post.author.userId), avatarVersion: avatar ? version(avatar) : null}};
   }
   const authorSelect = { userId: true, handle: true, displayName: true } as const;
+  router.use(socialCommentsRouter({prisma, storage, writes, visiblePosts, visibleProfiles, authorDTO: async author => {
+    const avatar = await mediaFile(author.userId, "avatar").catch(() => null);
+    return {...author, publicContact: await selectedContact(prisma, author.userId), avatarVersion: avatar ? version(avatar) : null};
+  }}));
   router.get("/contact-options", wrap(async (req, res) => { res.json({options: await contactOptions(prisma, uid(req))}); }));
   router.get("/me", wrap(async (req, res) => {
     const profile = await prisma.socialProfile.findUnique({ where: { userId: uid(req) } });
