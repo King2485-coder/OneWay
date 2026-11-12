@@ -1,4 +1,5 @@
 import express from "express";
+import { reservedCommunityAttachmentBody } from "./communityAttachments";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
@@ -25,7 +26,7 @@ const updateCommunitySchema = z.object({
 });
 
 const sendCommunityMessageSchema = z.object({
-  body: z.string().trim().min(1).max(4_000),
+  body: z.string().trim().min(1).max(4_000).refine(body => !reservedCommunityAttachmentBody(body)),
   clientMessageId: z.string().uuid().optional(),
 });
 

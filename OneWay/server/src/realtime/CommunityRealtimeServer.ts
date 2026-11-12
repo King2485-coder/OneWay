@@ -1,3 +1,4 @@
+import { reservedCommunityAttachmentBody } from "../routes/communityAttachments";
 import type { Server as HTTPServer, IncomingMessage } from "http";
 import type { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
@@ -362,7 +363,7 @@ export class CommunityRealtimeServer {
       });
       return;
     }
-    if (body.length > 4_000) {
+    if (body.length > 4_000 || reservedCommunityAttachmentBody(body)) {
       this.send(socket, "error", {
         code: "message_too_long",
         message: "Message is too long.",
