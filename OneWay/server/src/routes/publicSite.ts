@@ -182,7 +182,7 @@ export const PUBLIC_SITE_PAGES: Record<string, Page> = {
           <article>
             <span>LIVE</span>
             <h3>Private identity</h3>
-            <p>Two included OneWay numbers, caller controls, profile privacy, safety tools, device protection, and separate public and private identities.</p>
+            <p>One included personal OneWay number, caller controls, profile privacy, safety tools, device protection, and separate public and private identities.</p>
           </article>
           <article>
             <span>LIVE</span>
