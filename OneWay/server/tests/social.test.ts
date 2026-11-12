@@ -404,3 +404,21 @@ test("public comments support emoji, GIF, memes and voice with privacy and delet
   assert.equal((await call(b,path)).status,404);
   assert.equal((await fetch(base+path+`/${uploaded[1].id}/media`,{headers:{"x-test-user":b}})).status,404);
 });
+
+test("contact photo lookup follows account identity and current avatar while preserving visibility", async () => {
+  const owner=randomUUID(),viewer=randomUUID();
+  for(const user of [owner,viewer])await prisma.user.create({data:{id:user,email:user+"@portrait.test",displayName:"private",passwordHash:"test"}});
+  await call(owner,"/me","PUT",profile("portrait_"+owner.replaceAll("-","").slice(0,10)));
+  const lookup="/profiles/by-user/"+owner;
+  const initial=await call(viewer,lookup);assert.equal(initial.status,200);assert.equal(initial.data.profile.userId,owner);assert.equal(initial.data.profile.avatarVersion,null);
+  const png=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+yY7sAAAAASUVORK5CYII=","base64");
+  async function upload(){const f=new FormData();f.set("file",new Blob([png],{type:"image/png"}),"avatar.png");const r=await fetch(base.replace("/api/social","/api/platform/cloud/files/upload"),{method:"POST",headers:{"x-test-user":owner},body:f});assert.equal(r.status,201);return (await r.json() as any).file.id;}
+  const first=await upload();await call(owner,"/me","PUT",{...profile(initial.data.profile.handle),avatarFileId:first});
+  const before=(await call(viewer,lookup)).data.profile;assert.ok(before.avatarVersion);
+  const second=await upload();await call(owner,"/me","PUT",{...profile(initial.data.profile.handle),avatarFileId:second});
+  const after=(await call(viewer,lookup)).data.profile;assert.notEqual(after.avatarVersion,before.avatarVersion);
+  const photo=await fetch(base+"/profiles/"+after.handle+"/media/avatar?v="+after.avatarVersion,{headers:{"x-test-user":viewer}});assert.equal(photo.status,200);assert.deepEqual(Buffer.from(await photo.arrayBuffer()),png);
+  await call(owner,"/me","PUT",{...profile(initial.data.profile.handle),avatarFileId:null});assert.equal((await call(viewer,lookup)).data.profile.avatarVersion,null);
+  await setGhostMode(prisma,owner,true);assert.equal((await call(viewer,lookup)).status,404);
+  await setGhostMode(prisma,owner,false);await call(owner,"/me","PUT",profile(initial.data.profile.handle,false));assert.equal((await call(viewer,lookup)).status,404);
+});

@@ -197,6 +197,13 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
     if (bytes.length !== Number(file.byteCount) || !validCloudMedia(bytes, file.mimeType)) return res.status(404).end();
     res.set({ "Content-Type": file.mimeType, "Content-Disposition": "inline" }).send(bytes);
   }));
+  // Messaging handles and social handles are independent. Contacts resolve by account ID.
+  router.get("/profiles/by-user/:id", wrap(async (req, res) => {
+    const userId = identifier.parse(req.params.id);
+    const profile = await prisma.socialProfile.findFirst({where: {AND: [await visibleProfiles(uid(req)), {userId}]}});
+    if (!profile) return res.status(404).json({error: "profile_not_found"});
+    res.json({profile: await profileDTO(profile, uid(req))});
+  }));
   router.get("/profiles/:handle", wrap(async (req, res) => {
     const handle = identifier.parse(req.params.handle).toLowerCase();
     const profile = await prisma.socialProfile.findFirst({ where: { AND: [await visibleProfiles(uid(req)), { handle }] } });
