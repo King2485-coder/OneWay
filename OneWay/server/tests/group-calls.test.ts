@@ -28,7 +28,7 @@ test("outsiders and blocked contacts cannot expand a call; promotion is idempote
  const n=invited.length;assert.equal((await api(a,`/${call.callId}/participants`,{recipientUserId:c})).data.alreadyInvited,true);assert.equal(invited.length,n);
  assert.equal(call.status,"connected");assert.equal(callForUser(call,a).status,"connected");assert.equal(callForUser(call,c).status,"ringing");assert.equal(callForUser(call,c).calleeId,c);
  assert.equal(canJoinCall(call,c),false);assert.equal((await api(c,`/${leg(call,c)}/join`)).status,403);
- assert.equal((await api(c,`/${leg(call,c)}/accept`)).status,200);assert.equal((await api(c,`/${leg(call,c)}/join`)).status,200);
+ assert.equal((await api(c,`/${leg(call,c)}/accept`)).status,200);const joined=await api(c,`/${leg(call,c)}/join`);assert.equal(joined.status,200);assert.ok(Math.abs(Date.parse(joined.data.expiresAt)-Date.now()-300000)<5000);
  assert.equal(memberFor(call,c)?.state,"joined");assert.equal((await api(c,`/${leg(call,c)}/media-ready`,{audioPublished:true})).status,200);
  assert.equal((await api(c,`/${leg(call,c)}/end`)).status,200);assert.equal(call.status,"connected");assert.equal(callForUser(call,c).status,"ended");assert.equal(callForUser(call,c).groupMembers?.length,0);assert.equal(isParticipant(call,c),false);assert.equal((await api(c,`/${leg(call,c)}/join`)).status,403);assert.ok(removed.includes("oneway-user-"+c));
  assert.equal((await api(c,`/${leg(call,c)}`,{},"GET")).data.call.status,"ended");assert.equal((await api(c,"/active",{},"GET")).data.calls.length,0);

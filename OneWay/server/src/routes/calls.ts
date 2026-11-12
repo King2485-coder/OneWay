@@ -741,7 +741,7 @@ async function respondJoin(
       minimumNotBefore:call.groupMembers?Math.max(Math.floor(Date.now()/1000),notBefore??0):undefined,
     });
     const role = sameUserId(call.callerId, userId) ? "caller" : "recipient";
-    const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + 300 * 1000).toISOString();
     logVideoCallTimeline("call.participant.join.credentialsIssued", call, userId, {
       participantIdentity,
       callStatus: call.status,
