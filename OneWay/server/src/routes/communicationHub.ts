@@ -65,11 +65,13 @@ export function communicationHubRouter(deps:{db:PrismaClient;authenticate:expres
         const requests=await db.directChirpRequest.findMany({where:{OR:[{senderUserId:owner},{recipientUserId:owner}],status:{in:['pending','accepted','declined','cancelled']}},orderBy:{createdAt:'desc'},take:50});
         const ids=[...new Set(requests.map(r=>r.senderUserId===owner?r.recipientUserId:r.senderUserId))];
         const profiles=await db.user.findMany({where:{id:{in:ids}},select:{id:true,displayName:true,chirpId:true}});
-        const result:Row[]=[];
+        const result:Row[]=[],seen=new Set<string>();
+        requests.sort((a,b)=>Number(b.status==='pending'&&b.recipientUserId===owner)-Number(a.status==='pending'&&a.recipientUserId===owner)||b.createdAt.getTime()-a.createdAt.getTime());
         for(const r of requests){
           if(r.status==='pending'&&r.expiresAt.getTime()<Date.now())continue;
           const peer=r.senderUserId===owner?r.recipientUserId:r.senderUserId;
-          if(await communicationBlocked(db,owner,peer))continue;
+          if(seen.has(peer)||await communicationBlocked(db,owner,peer))continue;
+          seen.add(peer);
           result.push({id:'chirp:'+r.id,kind:'chirp',threadId:r.id,peerId:peer,peerHandle:profiles.find(p=>p.id===peer)?.chirpId??undefined,title:profiles.find(p=>p.id===peer)?.displayName||'OneWay contact',preview:r.status==='pending'?(r.recipientUserId===owner?'Chirp request received':'Waiting for Chirp response'):'Chirp request '+r.status,timestamp:iso(r.createdAt),unreadCount:r.status==='pending'&&r.recipientUserId===owner?1:0,blocked:false,status:r.status});
         }return result;
       }]

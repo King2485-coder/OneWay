@@ -43,6 +43,11 @@ test('blocks override messaging, Chirp, calls, video and shop permission',async(
 test('Chirp nobody permission stays off even for connected contacts',async()=>{
  await db.walkiePrivacySettings.upsert({where:{userId:'alice'},create:{userId:'alice',directChirpAudience:'nobody'},update:{directChirpAudience:'nobody'}});const access=await request('bob','/peers/alice').then(r=>r.json());assert.equal(access.canMessage,true);assert.equal(access.canChirp,false);
 });
+test('Chirp inbox collapses repeated peer activity but preserves incoming requests',async()=>{
+ await db.user.update({where:{id:'alice'},data:{chirpId:'ALICE-CHIRP'}});
+ for(const [index,status] of ['accepted','pending','accepted'].entries())await db.directChirpRequest.create({data:{senderUserId:'alice',recipientUserId:'bob',senderChirpId:'OLD-NAME',recipientChirpId:'BOB-CHIRP',status,clientRequestId:randomUUID(),expiresAt:new Date(Date.now()+60000),createdAt:new Date(Date.now()+index)}});
+ const rows=(await request('bob','/inbox').then(r=>r.json())).rows.filter((r:any)=>r.kind==='chirp');assert.equal(rows.length,1);assert.equal(rows[0].status,'pending');assert.equal(rows[0].unreadCount,1);assert.equal(rows[0].peerHandle,'ALICE-CHIRP');
+});
 test('failed community provider does not block shop inbox',async()=>{
  await db.$executeRawUnsafe('ALTER TABLE "CommunicationHubRead" RENAME TO "UnavailableHubRead"');try{const data=await request('bob','/inbox').then(r=>r.json());assert.ok(data.sourceErrors.includes('communities'));assert.ok(data.rows.some((r:any)=>r.kind==='shop'));}finally{await db.$executeRawUnsafe('ALTER TABLE "UnavailableHubRead" RENAME TO "CommunicationHubRead"');}
 });
