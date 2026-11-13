@@ -47,9 +47,16 @@ export class EmailAlertPushService {
     });
   }
 
+  async sendChirpInvitation(input: {userId: string; requestId: string}): Promise<void> {
+    await this.sendAlert({userId: input.userId, eventType: "chirp.invitation.received", threadId: "chirp:" + input.requestId,
+      deepLink: "oneway://chirp", messageId: input.requestId, expirySeconds: 600,
+      copy: () => ({title: "OneWay", body: "New Chirp invitation. Open OneWay to accept or decline."})});
+  }
+
   private async sendAlert(input: {
     userId: string;
     eventType: string;
+    expirySeconds?: number;
     threadId: string;
     deepLink: string;
     messageId: string;
@@ -62,7 +69,7 @@ export class EmailAlertPushService {
       const provider = this.providers.get(group.environment);
       if (!provider) continue;
       const note: APNsNotification = {
-        topic: this.bundleId, pushType: "alert", priority: 10, expiry: Math.floor(Date.now() / 1000) + 3600,
+        topic: this.bundleId, pushType: "alert", priority: 10, expiry: Math.floor(Date.now() / 1000) + (input.expirySeconds ?? 3600),
         payload: {
         aps: { alert: input.copy(group.previewMode), ...(group.soundEnabled ? { sound: "default" } : {}), "thread-id": input.threadId },
         eventType: input.eventType,

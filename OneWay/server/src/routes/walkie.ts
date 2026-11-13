@@ -23,6 +23,7 @@ interface WalkieRouterDeps {
   prisma: PrismaClient;
   tokens: LiveKitTokenService;
   isUserOnline?: (userId: string) => boolean;
+  alerts?: {sendChirpInvitation(input: {userId: string; requestId: string}): Promise<void>};
 }
 
 interface WalkieSession {
@@ -39,6 +40,8 @@ interface WalkieSession {
   participants: WalkieParticipant[];
   startedAt: string;
   endedAt?: string;
+  directRequestId?: string;
+  joinedUserIds?: string[];
 }
 
 interface WalkieParticipant {
@@ -515,6 +518,7 @@ type DirectChirpRequestRow = {
   ignoredAt?: Date | string | null;
   blockedAt?: Date | string | null;
   cancelledAt?: Date | string | null;
+  notificationSentAt?: Date | string | null;
 };
 
 async function directRequestRows(
@@ -522,6 +526,7 @@ async function directRequestRows(
   whereSql: string,
   values: unknown[]
 ): Promise<DirectChirpRequestRow[]> {
+  await prisma.$executeRawUnsafe(`UPDATE "DirectChirpRequest" SET "status" = 'expired', "updatedAt" = CURRENT_TIMESTAMP WHERE "status" = 'pending' AND julianday("expiresAt") <= julianday('now')`);
   return prisma.$queryRawUnsafe<DirectChirpRequestRow[]>(
     `SELECT * FROM "DirectChirpRequest" WHERE ${whereSql} ORDER BY "createdAt" DESC LIMIT 50`,
     ...values
@@ -594,12 +599,22 @@ async function handleDirectChirpAction(
     res.status(403).json({ error: "direct_chirp_forbidden" });
     return;
   }
-  if (row.status !== "pending" && row.status !== status) {
+  if (row.status !== "pending" && row.status !== status && !(status === "cancelled" && row.status === "accepted")) {
     res.status(409).json({ error: "direct_chirp_not_pending", request: await mapDirectChirpRequest(prisma, row, userId) });
     return;
   }
 
   if (status === "accepted" && !await mayCommunicate(prisma, row.senderUserId, row.recipientUserId)) { res.status(403).json({error: "contact_approval_required"}); return; }
+  if (status === "accepted" && row.status === "accepted") {
+    const existing = Array.from(sessions.values()).find(s => s.directRequestId === row.id && !s.endedAt);
+    if (!existing) { res.status(410).json({error: "chirp_conversation_ended", message: "Send a new Chirp request to talk again."}); return; }
+    res.json({request: await mapDirectChirpRequest(prisma, row, userId), session: await toSessionResponse({session: existing, userId, tokens})}); return;
+  }
+  if (status === "cancelled") {
+    for (const session of sessions.values()) {
+      if (session.directRequestId === row.id && !session.endedAt) session.endedAt = new Date().toISOString();
+    }
+  }
   const column = status === "cancelled" ? "cancelledAt" : `${status}At`;
   await prisma.$executeRawUnsafe(
     `UPDATE "DirectChirpRequest" SET "status" = ?, "${column}" = CURRENT_TIMESTAMP, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ?`,
@@ -630,10 +645,15 @@ async function handleDirectChirpAction(
 
   const senderIdentity = await loadPublicIdentity(row.senderUserId);
   const recipientIdentity = await loadPublicIdentity(row.recipientUserId);
-  const session: WalkieSession = findActiveSessionForPair(row.senderUserId, row.recipientUserId) ?? {
-    id: randomUUID(),
+  const previous = findActiveSessionForPair(row.senderUserId, row.recipientUserId);
+  if (previous) previous.endedAt = new Date().toISOString();
+  const sessionId = randomUUID();
+  const session: WalkieSession = {
+    id: sessionId,
+    directRequestId: row.id,
+    joinedUserIds: [row.recipientUserId],
     channelId: row.channelId ?? walkieChannelId(row.senderUserId, row.recipientUserId),
-    roomName: walkieRoomName(row.senderUserId, row.recipientUserId),
+    roomName: sanitizeRoomName(`chirp-${sessionId}`),
     callerUserId: row.senderUserId,
     caller: walkieDisplayName(senderIdentity),
     targetUserId: row.recipientUserId,
@@ -672,6 +692,7 @@ export function walkieRouter({
   prisma,
   tokens,
   isUserOnline = () => false,
+  alerts,
 }: WalkieRouterDeps): express.Router {
   const router = express.Router();
 
@@ -770,8 +791,11 @@ export function walkieRouter({
       return;
     }
 
+    const pending = (await directRequestRows(prisma, `senderUserId = ? AND recipientUserId = ? AND status = 'pending'`, [senderUserId, target.userId]))[0];
+    if (pending) { res.json({request: await mapDirectChirpRequest(prisma, pending, senderUserId)}); return; }
     const recent = await recentDirectChirpCount(prisma, senderUserId, target.userId);
-    if (recent > 4) {
+    const requestLimit = await areFriends(prisma, senderUserId, target.userId) ? 60 : 5;
+    if (recent >= requestLimit) {
       res.status(429).json({ error: "direct_chirp_rate_limited", message: "Try again later." });
       return;
     }
@@ -784,8 +808,8 @@ export function walkieRouter({
 
     await prisma.$executeRawUnsafe(
       `INSERT OR IGNORE INTO "DirectChirpRequest"
-       ("id", "senderUserId", "recipientUserId", "senderChirpId", "recipientChirpId", "status", "clientRequestId", "sourceDeviceId", "channelId", "expiresAt")
-       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+       ("id", "senderUserId", "recipientUserId", "senderChirpId", "recipientChirpId", "status", "clientRequestId", "sourceDeviceId", "channelId", "expiresAt", "updatedAt")
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
       requestId,
       senderUserId,
       target.userId,
@@ -815,6 +839,11 @@ export function walkieRouter({
     }, "[chirp:direct] request created");
 
     res.status(201).json({ request: await mapDirectChirpRequest(prisma, request, senderUserId) });
+    if (!request.notificationSentAt) {
+      alerts?.sendChirpInvitation({userId: target.userId, requestId: request.id})
+        .then(() => prisma.$executeRawUnsafe(`UPDATE "DirectChirpRequest" SET "notificationSentAt" = CURRENT_TIMESTAMP WHERE "id" = ?`, request.id))
+        .catch(error => logger.warn({err: error, requestId: shortId(request.id)}, "[chirp] invitation alert failed"));
+    }
   });
 
   router.get("/direct/incoming", async (req, res) => {
@@ -827,6 +856,17 @@ export function walkieRouter({
     const userId = (req as unknown as AuthenticatedRequest).userId;
     const rows = await directRequestRows(prisma, `senderUserId = ? AND status = 'pending'`, [userId]);
     res.json({ requests: await Promise.all(rows.map((row) => mapDirectChirpRequest(prisma, row, userId))) });
+  });
+
+  router.get("/direct/:requestId", async (req, res) => {
+    const userId = (req as unknown as AuthenticatedRequest).userId;
+    let row = (await directRequestRows(prisma, `id = ?`, [req.params.requestId]))[0];
+    if (!row || (row.senderUserId !== userId && row.recipientUserId !== userId)) { res.status(404).json({error: "direct_chirp_request_not_found"}); return; }
+    if (row.status === "accepted" && !Array.from(sessions.values()).some(s => s.directRequestId === row.id && !s.endedAt)) {
+      await prisma.$executeRawUnsafe(`UPDATE "DirectChirpRequest" SET "status" = 'expired', "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ?`, row.id);
+      row = {...row, status: "expired"};
+    }
+    res.json({request: await mapDirectChirpRequest(prisma, row, userId)});
   });
 
   router.post("/direct/:requestId/accept", async (req, res) => {
@@ -928,7 +968,7 @@ export function walkieRouter({
     );
 
     const channels = await Promise.all(active.map(async (session) => {
-      const incoming = !session.isGroup && session.targetUserId === userId;
+      const incoming = session.callerUserId !== userId && !(session.joinedUserIds ?? []).includes(userId);
       const peerUserId = session.isGroup
         ? session.callerUserId
         : (incoming ? session.callerUserId : session.targetUserId);
@@ -1090,6 +1130,12 @@ export function walkieRouter({
       }
     }
 
+    if (!isGroup) {
+      const existing = findActiveSessionForPair(userId, resolvedTargets[0].userId);
+      if (!existing?.directRequestId) { res.status(409).json({error: "chirp_request_required", message: "Send a Chirp request and wait for acceptance first."}); return; }
+      res.json(await toSessionResponse({session: existing, userId, tokens})); return;
+    }
+
     const callerParticipant: WalkieParticipant = {
       userId,
       displayName: walkieDisplayName(caller),
@@ -1107,6 +1153,7 @@ export function walkieRouter({
         callerUserId: userId,
         caller: walkieDisplayName(caller),
         groupName,
+        joinedUserIds: [userId],
         isGroup: true,
         participants: [callerParticipant, ...resolvedTargets],
         startedAt: new Date().toISOString(),
@@ -1127,57 +1174,6 @@ export function walkieRouter({
       return;
     }
 
-    const target = resolvedTargets[0];
-    if (!target) {
-      res.status(404).json({
-        error: "target_unreachable",
-        message: "This person is not reachable on OneWay Walkie yet.",
-      });
-      return;
-    }
-    // Ensure both devices always join the same LiveKit room for a given user pair.
-    // We reuse an existing active session (half-duplex is handled client-side for now).
-    const existing = findActiveSessionForPair(userId, target.userId);
-    const session: WalkieSession = existing ?? {
-      id: randomUUID(),
-      channelId: walkieChannelId(userId, target.userId),
-      roomName: walkieRoomName(userId, target.userId),
-      callerUserId: userId,
-      caller: walkieDisplayName(caller),
-      targetUserId: target.userId,
-      target: target.displayName,
-      isGroup: false,
-      participants: [callerParticipant, target],
-      startedAt: new Date().toISOString(),
-    };
-
-    if (!existing) {
-      sessions.set(session.id, session);
-      logger.info({
-        event: "CHIRP_SERVER_SESSION_CREATED",
-        userId: shortId(userId),
-        targetUserId: shortId(target.userId),
-        recipientUserId: shortId(target.userId),
-        sessionId: shortId(session.id),
-        channelId: shortId(session.channelId),
-        roomName: shortId(session.roomName),
-      }, "[walkie] session start");
-    } else {
-      logger.info({
-        event: "CHIRP_SERVER_SESSION_REUSED",
-        userId: shortId(userId),
-        targetUserId: shortId(target.userId),
-        recipientUserId: shortId(target.userId),
-        roomName: shortId(session.roomName),
-        sessionId: shortId(session.id),
-        channelId: shortId(session.channelId),
-      }, "[walkie] session reuse");
-    }
-    try {
-      res.status(201).json(await toSessionResponse({ session, userId, tokens }));
-    } catch (error) {
-      res.status(500).json({ error: "walkie_token_failed" });
-    }
   });
 
   router.post("/sessions/:sessionId/join", async (req, res) => {
@@ -1203,6 +1199,8 @@ export function walkieRouter({
       return;
     }
 
+    if (req.body?.acceptInvitation !== true) { res.status(409).json({error: "chirp_acceptance_required", message: "Accept this Chirp invitation before connecting."}); return; }
+    session.joinedUserIds = Array.from(new Set([...(session.joinedUserIds ?? []), userId]));
     try {
       logger.info({
         event: "CHIRP_SERVER_RECEIVER_JOINED",
@@ -1251,6 +1249,9 @@ export function walkieRouter({
       }, "[chirp] transmit start rejected");
       res.status(403).json({ error: "not_participant" });
       return;
+    }
+    if (!(session.joinedUserIds ?? []).includes(userId) || !(session.joinedUserIds ?? []).some(id => id !== userId)) {
+      res.status(409).json({error: "chirp_waiting_for_acceptance", message: "Wait for the other person to accept and connect before speaking."}); return;
     }
     if (session.transmitterUserId && session.transmitterUserId !== userId) {
       logger.warn({
@@ -1619,6 +1620,7 @@ async function toSessionResponse({
   const base = {
     sessionId: session.id,
     channelId: session.channelId,
+    directRequestId: session.directRequestId,
     roomName: session.roomName,
     target: peerDisplay(session, userId),
     groupName: session.groupName,
@@ -1670,6 +1672,7 @@ function toChannelDTO(session: WalkieSession, userId: string) {
     id: session.id,
     sessionId: session.id,
     channelId: session.channelId,
+    directRequestId: session.directRequestId,
     roomName: session.roomName,
     target: peerDisplay(session, userId),
     groupName: session.groupName,

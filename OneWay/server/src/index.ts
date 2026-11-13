@@ -895,6 +895,7 @@ mountRouter("/api/livekit", liveKitRouter({ registry, tokens: livekit }));
 mountRouter("/livekit", liveKitRouter({ registry, tokens: livekit }));
 const chirpRoutes = walkieRouter({
   prisma,
+  alerts: emailAlerts,
   tokens: livekit,
   isUserOnline: (userId) =>
     (ws?.isUserConnected(userId) ?? false) || friendRealtime.isUserConnected(userId),

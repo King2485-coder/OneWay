@@ -70,3 +70,12 @@ test("test and release device tokens use their matching Apple environment", asyn
   await service.sendNewMessage({ userId: "recipient", conversationId: "conversation", messageId: "message", sender: "", body: "" });
   assert.deepEqual(deliveries, [ { environment: "sandbox", tokens: ["a".repeat(64)] }, { environment: "production", tokens: ["b".repeat(64)] } ]);
 });
+
+test("Chirp invitations use a private generic alert and open the Chirp page", async () => {
+  const {service,sent}=makeService({previewMode:"sender_subject",soundEnabled:true});
+  await service.sendChirpInvitation({userId:"recipient",requestId:"request"});
+  assert.equal(sent.length,1);
+  assert.equal(sent[0].note.payload.eventType,"chirp.invitation.received");
+  assert.equal(sent[0].note.payload.deepLink,"oneway://chirp");
+  assert.deepEqual(sent[0].note.payload.aps.alert,{title:"OneWay",body:"New Chirp invitation. Open OneWay to accept or decline."});
+});
