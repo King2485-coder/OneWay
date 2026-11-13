@@ -422,3 +422,17 @@ test("contact photo lookup follows account identity and current avatar while pre
   await setGhostMode(prisma,owner,true);assert.equal((await call(viewer,lookup)).status,404);
   await setGhostMode(prisma,owner,false);await call(owner,"/me","PUT",profile(initial.data.profile.handle,false));assert.equal((await call(viewer,lookup)).status,404);
 });
+
+test("contact photo lookup follows current communication identity without exposing hidden profiles", async () => {
+ const user=randomUUID(),viewer=randomUUID();
+ for(const u of [user,viewer])await prisma.user.create({data:{id:u,email:u+"@photo.test",passwordHash:"test",displayName:"private"}});
+ const social="photo"+user.replaceAll("-","").slice(0,10);await call(user,"/me","PUT",profile(social));
+ await prisma.oneWayIdentity.create({data:{userId:user,onewayId:"@contact_"+user.slice(0,8),emailAlias:user+"@oneway.test",displayName:"Contact"}});
+ const lookup="/profiles/by-contact/"+encodeURIComponent("contact_"+user.slice(0,8));
+ assert.equal((await call(viewer,lookup)).data.profile.userId,user);
+ assert.equal((await call(viewer,"/profiles/by-user/"+user)).data.profile.handle,social);
+ await setGhostMode(prisma,user,true);assert.equal((await call(viewer,lookup)).status,404);
+ assert.equal((await call(user,lookup)).status,200);
+ await setGhostMode(prisma,user,false);await call(viewer,"/me","PUT",profile("viewer"+viewer.replaceAll("-","").slice(0,10)));
+ await call(viewer,"/blocks/"+user,"PUT");assert.equal((await call(viewer,lookup)).status,404);
+});

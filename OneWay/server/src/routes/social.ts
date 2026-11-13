@@ -197,6 +197,20 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
     if (bytes.length !== Number(file.byteCount) || !validCloudMedia(bytes, file.mimeType)) return res.status(404).end();
     res.set({ "Content-Type": file.mimeType, "Content-Disposition": "inline" }).send(bytes);
   }));
+  // Resolve exact communication identifiers before considering a social handle.
+  // Never substitute a different visible profile when the matching account is hidden.
+  router.get("/profiles/by-contact/:identifier", wrap(async (req, res) => {
+    const raw = identifier.parse(req.params.identifier).trim();
+    const bare = raw.replace(/^@/, "").toLowerCase();
+    if (!bare) return res.status(404).json({error: "profile_not_found"});
+    const account = await prisma.user.findFirst({where: {OR: [
+      {id: raw.toLowerCase()}, {identity: {is: {onewayId: "@" + bare}}},
+      {chirpIdNormalized: raw.toUpperCase()}
+    ]}, select: {id: true}});
+    const profile = await prisma.socialProfile.findFirst({where: {AND: [await visibleProfiles(uid(req)), account ? {userId: account.id} : {handle: bare}]}});
+    if (!profile) return res.status(404).json({error: "profile_not_found"});
+    res.json({profile: await profileDTO(profile, uid(req))});
+  }));
   // Messaging handles and social handles are independent. Contacts resolve by account ID.
   router.get("/profiles/by-user/:id", wrap(async (req, res) => {
     const userId = identifier.parse(req.params.id);
