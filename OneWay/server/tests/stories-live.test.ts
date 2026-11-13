@@ -81,3 +81,13 @@ test('viewers can report and block a Story account through the existing safety a
  assert.equal((await request('outsider','/'+saved.id+'/content')).status,404);
  assert.equal((await request('alice','/mine','DELETE')).status,204);
 });
+
+test('hidden profiles cannot keep broadcasting or expose prior Stories',async()=>{
+ const saved=await request('alice','','POST',story('friends')).then(r=>r.json());
+ const input={id:randomUUID(),title:'Synthetic privacy check',visibility:'friends'};
+ assert.equal((await request('alice','/live','POST',input)).status,201);await request('alice','/live/'+input.id+'/heartbeat','POST');
+ await db.user.update({where:{id:'alice'},data:{publicProfileHiddenAt:new Date()}});
+ assert.equal((await request('bob','/'+saved.id+'/content')).status,404);
+ assert.equal((await request('bob','/live/'+input.id+'/join','POST')).status,404);
+ assert.equal((await request('alice')).status,401);
+});

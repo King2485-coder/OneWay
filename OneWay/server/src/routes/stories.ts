@@ -30,10 +30,11 @@ export function storiesRouter(deps:{db:PrismaClient;authenticate:RequestHandler;
   if(e instanceof z.ZodError){res.status(400).json({error:"invalid_story"});return;}
   res.status(e instanceof StoryError?e.status:503).json({error:e instanceof StoryError?e.code:"stories_unavailable"});
  });};
+ const closingRooms=new Set<string>();
  const room=(sessionId:string)=>"oneway-live-"+sessionId;
  async function publicAllowed(owner:string){return !await ghostMode(db,owner)&&Boolean(await db.socialProfile.findFirst({where:{userId:owner,discoverable:true}}));}
  async function visible(owner:string,scope:string,viewer:string){
-  if(!await db.user.findFirst({where:{id:owner,accountStatus:"active"},select:{id:true}}))return false;
+  if(!await db.user.findFirst({where:{id:owner,accountStatus:"active",publicProfileHiddenAt:null},select:{id:true}}))return false;
   if(owner===viewer)return true;
   const blocked=await db.oneWayContact.count({where:{status:"blocked",OR:[{userId:owner,contactUserId:viewer},{userId:viewer,contactUserId:owner}]}})+await db.socialBlock.count({where:{OR:[{blockerId:owner,blockedId:viewer},{blockerId:viewer,blockedId:owner}]}});
   if(blocked)return false;
@@ -49,12 +50,15 @@ export function storiesRouter(deps:{db:PrismaClient;authenticate:RequestHandler;
  }
  async function findLive(sessionId:string){return (await db.$queryRawUnsafe<Live[]>(`SELECT * FROM "LiveStorySession" WHERE "id"=?`,sessionId))[0];}
  async function expire(){
-  if(storage){const old=await db.$queryRawUnsafe<Story[]>(`SELECT * FROM "SocialStory" WHERE "expiresAtMs"<=? OR "ownerId" NOT IN (SELECT "id" FROM "User" WHERE "accountStatus"='active') LIMIT 50`,now());
+  if(storage){const old=await db.$queryRawUnsafe<Story[]>(`SELECT * FROM "SocialStory" WHERE "expiresAtMs"<=? OR "ownerId" NOT IN (SELECT "id" FROM "User" WHERE "accountStatus"='active' AND "publicProfileHiddenAt" IS NULL) LIMIT 50`,now());
    for(const s of old)try{await storage.delete(s.storageKey);await db.$executeRawUnsafe(`DELETE FROM "SocialStory" WHERE "id"=?`,s.id);}catch{/*retain cleanup metadata for retry*/}
   }
-  await db.$executeRawUnsafe(`UPDATE "LiveStorySession" SET "state"='ended',"activeOwnerId"=NULL,"endedAtMs"=? WHERE "state"!='ended' AND ("leaseUntilMs"<=? OR "startedAtMs"<=? OR "ownerId" NOT IN (SELECT "id" FROM "User" WHERE "accountStatus"='active'))`,now(),now(),now()-7200000);
+  await db.$executeRawUnsafe(`UPDATE "LiveStorySession" SET "state"='ended',"activeOwnerId"=NULL,"endedAtMs"=? WHERE "state"!='ended' AND ("leaseUntilMs"<=? OR "startedAtMs"<=? OR "ownerId" NOT IN (SELECT "id" FROM "User" WHERE "accountStatus"='active' AND "publicProfileHiddenAt" IS NULL))`,now(),now(),now()-7200000);
   const ended=await db.$queryRawUnsafe<Live[]>(`SELECT * FROM "LiveStorySession" WHERE "state"='ended' AND "endedAtMs">? LIMIT 50`,now()-60000);
-  for(const s of ended)try{await tokens.deleteRoom(room(s.id));}catch{/*retry termination during token expiry window*/}
+  for(const s of ended)if(!closingRooms.has(s.id)){
+   closingRooms.add(s.id);void tokens.deleteRoom(room(s.id)).catch(()=>undefined).finally(()=>closingRooms.delete(s.id));
+  }
+  await db.$executeRawUnsafe(`DELETE FROM "LiveStorySession" WHERE "state"='ended' AND "endedAtMs"<?`,now()-86400000);
  }
  const cleanup=setInterval(()=>{void expire().catch(()=>undefined);},15000);cleanup.unref();
  router.get("/status",(_req,res)=>res.json({stories:Boolean(storage)&&isFieldEncryptionEnabled(),live:tokens.isConfigured()&&isFieldEncryptionEnabled(),version:1}));
@@ -62,7 +66,7 @@ export function storiesRouter(deps:{db:PrismaClient;authenticate:RequestHandler;
  router.use((_req,res,next)=>{res.set({"Cache-Control":"private, no-store, max-age=0","Pragma":"no-cache","X-Content-Type-Options":"nosniff"});next();});
  router.use((req,res,next)=>{(async()=>{
   if(!isFieldEncryptionEnabled())throw new StoryError(503,"stories_unavailable");
-  if(!await db.user.findFirst({where:{id:uid(req),accountStatus:"active"},select:{id:true}}))throw new StoryError(401,"account_not_active");
+  if(!await db.user.findFirst({where:{id:uid(req),accountStatus:"active",publicProfileHiddenAt:null},select:{id:true}}))throw new StoryError(401,"account_not_active");
   await expire();next();
  })().catch(e=>res.status(e instanceof StoryError?e.status:503).json({error:e instanceof StoryError?e.code:"stories_unavailable"}));});
  const writes=rateLimit({windowMs:60000,limit:20,standardHeaders:true,legacyHeaders:false,keyGenerator:req=>uid(req)});

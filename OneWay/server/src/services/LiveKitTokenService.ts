@@ -122,9 +122,12 @@ export class LiveKitTokenService {
   async deleteRoom(roomName: string): Promise<void> {
     if (!this.isConfigured()) throw new Error("livekit_not_configured");
     const { RoomServiceClient } = require("livekit-server-sdk");
-    const client = new RoomServiceClient(this.url!.replace(/^ws/, "http"), this.apiKey!, this.apiSecret!);
+    const client = new RoomServiceClient(this.url!.replace(/^ws/, "http"), this.apiKey!, this.apiSecret!, {requestTimeout: 10});
     try { await client.deleteRoom(roomName); }
-    catch (error) { if ((error as {code?: number})?.code !== 5 && !/not.?found/i.test(String((error as Error)?.message))) throw error; }
+    catch (error) {
+      const code = (error as {code?: number | string})?.code;
+      if (code !== 5 && code !== "not_found" && !/not.?found|does not exist/i.test(String((error as Error)?.message))) throw error;
+    }
   }
 
   /** True when env is set AND the sdk is on disk. */
