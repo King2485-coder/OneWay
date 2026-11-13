@@ -13,6 +13,7 @@ exec su-exec oneway sh -c '
       npx prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20261110000000_enable_social_service/migration.sql || exit 1
       npx prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20261112000000_social_comments/migration.sql || exit 1
       npx prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20261113000000_instants/migration.sql || exit 1
+      npx prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20261113010000_stories_live/migration.sql || exit 1
     else
       echo "[oneway] Initializing the Render persistent database."
       npx prisma db push --skip-generate

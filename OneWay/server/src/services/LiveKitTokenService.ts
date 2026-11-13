@@ -80,6 +80,7 @@ export interface TokenIssueArgs {
   minimumNotBefore?: number;
   /** Subscribe-only viewers can be locked down with this. Default true. */
   canPublish?: boolean;
+  canPublishData?: boolean;
   metadata?: string;
 }
 
@@ -118,6 +119,14 @@ export class LiveKitTokenService {
     if(!response.ok)throw new Error("livekit_participant_removal_failed_"+response.status);
   }
 
+  async deleteRoom(roomName: string): Promise<void> {
+    if (!this.isConfigured()) throw new Error("livekit_not_configured");
+    const { RoomServiceClient } = require("livekit-server-sdk");
+    const client = new RoomServiceClient(this.url!.replace(/^ws/, "http"), this.apiKey!, this.apiSecret!);
+    try { await client.deleteRoom(roomName); }
+    catch (error) { if ((error as {code?: number})?.code !== 5 && !/not.?found/i.test(String((error as Error)?.message))) throw error; }
+  }
+
   /** True when env is set AND the sdk is on disk. */
   isConfigured(): boolean {
     return !!(this.url && this.apiKey && this.apiSecret && loadSdk() && loadJwt());
@@ -145,7 +154,7 @@ export class LiveKitTokenService {
         roomJoin: true,
         canPublish: args.canPublish !== false,
         canSubscribe: true,
-        canPublishData: true,
+        canPublishData: args.canPublishData !== false,
       },
     };
     if (args.metadata) {

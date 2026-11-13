@@ -1695,3 +1695,40 @@ model InstantRecipient {
   @@id([instantId, userId])
   @@index([userId, openedAtMs])
 }
+
+model SocialStory {
+  id String @id
+  ownerId String
+  visibility String
+  storageKey String
+  fingerprint String
+  mediaType String?
+  mimeType String?
+  byteCount Int
+  createdAtMs BigInt
+  expiresAtMs BigInt
+  @@index([ownerId, expiresAtMs])
+  @@index([expiresAtMs])
+}
+model LiveStorySession {
+  id String @id
+  activeOwnerId String? @unique
+  ownerId String
+  titleCiphertext String
+  visibility String
+  state String
+  startedAtMs BigInt
+  leaseUntilMs BigInt
+  endedAtMs BigInt?
+  viewers LiveStoryViewer[]
+  @@index([ownerId, state])
+  @@index([state, leaseUntilMs])
+}
+model LiveStoryViewer {
+  sessionId String
+  userId String
+  identity String
+  lastSeenMs BigInt
+  session LiveStorySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  @@id([sessionId, userId])
+}
