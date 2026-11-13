@@ -21,11 +21,21 @@ export async function approvedContacts(db: PrismaClient, userId: string): Promis
   const reverse = await db.oneWayContact.findMany({where: {contactUserId: userId, status: "connected", userId: {in: rows.map(r => r.contactUserId)}}, select: {userId: true}});
   return reverse.map(r => r.userId);
 }
+/** Account-level blocks override direct communication across its transports. */
+export async function communicationBlocked(db: PrismaClient, sender: string, recipient: string): Promise<boolean> {
+  sender = canonical(sender); recipient = canonical(recipient);
+  const [contact, friendship, social] = await Promise.all([
+    db.oneWayContact.findFirst({where:{status:"blocked",OR:[{userId:sender,contactUserId:recipient},{userId:recipient,contactUserId:sender}]},select:{id:true}}),
+    db.friendship.findFirst({where:{status:"blocked",OR:[{requesterUserId:sender,recipientUserId:recipient},{requesterUserId:recipient,recipientUserId:sender}]},select:{id:true}}),
+    db.socialBlock.findFirst({where:{OR:[{blockerId:sender,blockedId:recipient},{blockerId:recipient,blockedId:sender}]},select:{blockerId:true}})
+  ]);
+  return Boolean(contact || friendship || social);
+}
 export async function mayCommunicate(db: PrismaClient, sender: string, recipient: string): Promise<boolean> {
   sender = canonical(sender); recipient = canonical(recipient);
   try {
   const blocked = await db.oneWayContact.findFirst({where: {status: "blocked", OR: [{userId: sender, contactUserId: recipient}, {userId: recipient, contactUserId: sender}]}, select: {id: true}});
-  if (blocked) return false;
+  if (blocked || await communicationBlocked(db, sender, recipient)) return false;
   if (!await ghostMode(db, sender) && !await ghostMode(db, recipient)) return true;
   return (await approvedContacts(db, recipient)).includes(sender);
   } catch { return false; } // Privacy storage unavailable: never authorize a new call or message.

@@ -1,4 +1,5 @@
 import express from "express";
+import { communicationBlocked } from "../services/AccountVisibility";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
@@ -145,8 +146,10 @@ export function shopMessagesRouter(deps: ShopMessagesDeps = {}): express.Router 
       orderBy: { createdAt: "asc" },
       take: 500,
     });
+    const other = conversation.buyerId === userId ? conversation.sellerId : conversation.buyerId;
+    const blocked = await isBlocked(db, userId, other) || await isBlocked(db, other, userId);
     res.json({
-      conversation: mapConversation(conversation),
+      conversation: { ...mapConversation(conversation), ...(blocked ? { state: "blocked", status: "blocked" } : {}) },
       messages: shopMessages.map(mapMessage),
     });
   });
@@ -345,7 +348,7 @@ async function findAuthorizedConversation(db: any, conversationId: string, userI
 
 async function isBlocked(db: any, userId: string, target: string): Promise<boolean> {
   const count = await db.shopBlockedUser.count({ where: { userId, blockedUserId: target } });
-  return count > 0;
+  return count > 0 || await communicationBlocked(db, userId, target);
 }
 
 async function blockedForUser(db: any, userId: string) {

@@ -484,11 +484,11 @@ async function updateWalkiePrivacyFromBody(
   return next;
 }
 
-async function isDirectChirpDiscoverable(
+export async function isDirectChirpDiscoverable(
   prisma: PrismaClient,
   senderUserId: string,
   recipientUserId: string,
-  privacy: WalkiePrivacyDTO
+  privacy: Pick<WalkiePrivacyDTO, "allowDirectChirp" | "directChirpAudience">
 ): Promise<boolean> {
   if (!await mayCommunicate(prisma, senderUserId, recipientUserId)) return false;
   if (!privacy.allowDirectChirp || privacy.directChirpAudience === "nobody") return false;
