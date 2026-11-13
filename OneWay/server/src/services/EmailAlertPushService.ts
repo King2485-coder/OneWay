@@ -47,6 +47,12 @@ export class EmailAlertPushService {
     });
   }
 
+  async sendInstant(input: {userId: string; instantId: string}): Promise<void> {
+    await this.sendAlert({userId: input.userId, eventType: "instant.received", threadId: "instant:" + input.instantId,
+      deepLink: "oneway://messages", messageId: input.instantId, expirySeconds: 3600,
+      copy: () => ({title: "OneWay", body: "You received an instant photo. Open Messages to view it."})});
+  }
+
   async sendChirpInvitation(input: {userId: string; requestId: string}): Promise<void> {
     await this.sendAlert({userId: input.userId, eventType: "chirp.invitation.received", threadId: "chirp:" + input.requestId,
       deepLink: "oneway://chirp", messageId: input.requestId, expirySeconds: 600,

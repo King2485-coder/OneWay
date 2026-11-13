@@ -1674,3 +1674,24 @@ model SocialCommentReport {
   comment    SocialComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
   @@unique([reporterId, commentId])
 }
+
+// Camera-only, view-once photos. Ciphertext is cleared when every recipient opens.
+model InstantPhoto {
+  id String @id
+  senderId String
+  ciphertext String?
+  fingerprint String
+  createdAtMs BigInt
+  expiresAtMs BigInt
+  recipients InstantRecipient[]
+  @@index([senderId, expiresAtMs])
+  @@index([expiresAtMs])
+}
+model InstantRecipient {
+  instantId String
+  userId String
+  openedAtMs BigInt?
+  photo InstantPhoto @relation(fields: [instantId], references: [id], onDelete: Cascade)
+  @@id([instantId, userId])
+  @@index([userId, openedAtMs])
+}
