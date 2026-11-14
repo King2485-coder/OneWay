@@ -64,7 +64,7 @@ export function quantumDiscoveryRouter(deps:{db:PrismaClient;authenticate:Reques
   let items:QuantumResult[]=[];
   if(type==="people"){
    const profiles=await db.socialProfile.findMany({where:{user:{...active},discoverable:true,userId:{notIn:excluded},...(id?{AND:[{userId:id}]}:{OR:[{handle:{contains:q.replace(/^@/,"").toLowerCase()}},{displayName:{contains:q}}]})},select:{userId:true,handle:true,displayName:true,bio:true,updatedAt:true},orderBy:[{handle:"asc"}],take:limit,skip:offset});
-   items=profiles.map(p=>result(p.userId,p.displayName,"@"+p.handle,{userId:p.userId,handle:p.handle,relationshipContext:ctx.related.get(p.userId),actionSet:["open","message","chirp","call","video"],createdAt:p.updatedAt.toISOString()}));
+   items=profiles.map(p=>result(p.userId,p.displayName,"@"+p.handle,{userId:p.userId,handle:p.handle,relationshipContext:ctx.related.get(p.userId),actionSet:p.userId===viewer?["open"]:["open","message","chirp","call","video"],createdAt:p.updatedAt.toISOString()}));
   }else if(type==="posts"){
    const posts=await db.socialPost.findMany({where:{audience:"public",author:{discoverable:true,userId:{notIn:excluded},user:active},...(id?{id}:{body:{contains:q}})},select:{id:true,body:true,createdAt:true,author:{select:{userId:true,handle:true,displayName:true}}},orderBy:[{createdAt:"desc"},{id:"desc"}],take:limit,skip:offset});
    items=posts.map(p=>result(p.id,p.body.slice(0,200),p.author.displayName+" · Public post",{userId:p.author.userId,handle:p.author.handle,createdAt:p.createdAt.toISOString()}));

@@ -54,3 +54,5 @@ test("inactive account cannot query discovery",async()=>{await db.user.update({w
 
 test("inactive authors and community owners do not survive discovery",async()=>{await db.user.update({where:{id:bob},data:{publicProfileHiddenAt:new Date()}});for(const type of["people","posts","communities","shops","sites"]){const rows=(await search(type)).data.results;if(type==="people")assert.equal(rows.some((r:any)=>r.userId===bob),false);else assert.equal(rows.length,0,type);}await db.user.update({where:{id:bob},data:{publicProfileHiddenAt:null}});});
 test("contact-level blocks override social discovery independently",async()=>{await db.oneWayContact.updateMany({where:{userId:alice,contactUserId:bob},data:{status:"blocked"}});assert.equal((await call(`/resolve/people/${bob}`)).status,404);assert.equal((await search("posts")).data.results.length,0);await db.oneWayContact.updateMany({where:{userId:alice,contactUserId:bob},data:{status:"connected"}});});
+
+test("own profile never offers calling or messaging oneself",async()=>{const own=(await search("people","alice")).data.results.find((r:any)=>r.userId===alice);assert.ok(own);assert.deepEqual(own.actionSet,["open"]);});
