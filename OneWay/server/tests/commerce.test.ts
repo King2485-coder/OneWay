@@ -79,3 +79,10 @@ test('account deletion cascades private commerce documents',async()=>{
  await db.user.delete({where:{id:user.id}});
  const rows=await db.$queryRawUnsafe<any[]>('SELECT id FROM CommerceDocument WHERE id=?',address.id);assert.equal(rows.length,0);
 });
+
+test('remembered replacements are private suggestions and never silently alter a quote',async()=>{
+ await db.storefrontProduct.update({where:{id:product},data:{inventory:0}});
+ const a=await service.quote(alice,{items});assert.equal(a.items[0].productId,product);assert.equal(a.unavailable.length,1);assert.equal(a.suggestedSubstitutions[0].replacement.productId,replacement);
+ const stranger=await service.quote(eve,{items});assert.equal(stranger.suggestedSubstitutions.length,0);
+ await db.storefrontProduct.update({where:{id:product},data:{inventory:10}});
+});
