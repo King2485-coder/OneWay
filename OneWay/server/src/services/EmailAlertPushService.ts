@@ -56,13 +56,13 @@ export class EmailAlertPushService {
   async sendRecordedChirp(input: {userId:string;chirpId:string;expiresAtMs:number|null}):Promise<void> {
     const remaining=input.expiresAtMs==null?3600:Math.floor((input.expiresAtMs-Date.now())/1000);
     if(remaining<=0)return;
-    await this.sendAlert({userId:input.userId,eventType:"chirp.received",threadId:"chirp:"+input.chirpId,deepLink:"oneway://chirp",messageId:input.chirpId,expirySeconds:Math.min(remaining,3600),copy:()=>({title:"OneWay",body:"New Chirp. Open OneWay to view or play it."})});
+    await this.sendAlert({userId:input.userId,eventType:"message.received",threadId:"chirp:"+input.chirpId,deepLink:"oneway://messages",messageId:input.chirpId,expirySeconds:Math.min(remaining,3600),copy:()=>({title:"OneWay",body:"New voice message or media. Open OneWay to view or play it."})});
   }
 
-  async sendChirpInvitation(input: {userId: string; requestId: string}): Promise<void> {
-    await this.sendAlert({userId: input.userId, eventType: "chirp.invitation.received", threadId: "chirp:" + input.requestId,
-      deepLink: "oneway://chirp", messageId: input.requestId, expirySeconds: 600,
-      copy: () => ({title: "OneWay", body: "New Chirp invitation. Open OneWay to accept or decline."})});
+  async sendChirpInvitation(input: {userId: string; requestId: string; recordedMedia?: boolean}): Promise<void> {
+    await this.sendAlert({userId: input.userId, eventType: input.recordedMedia ? "message.received" : "chirp.invitation.received", threadId: "chirp:" + input.requestId,
+      deepLink: input.recordedMedia ? "oneway://messages" : "oneway://chirp", messageId: input.requestId, expirySeconds: 600,
+      copy: () => ({title: "OneWay", body: input.recordedMedia ? "New voice-message or media request. Open OneWay to accept or decline." : "New Chirp invitation. Open OneWay to accept or decline."})});
   }
 
   private async sendAlert(input: {
