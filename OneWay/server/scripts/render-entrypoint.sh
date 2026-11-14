@@ -19,6 +19,7 @@ exec su-exec oneway sh -c '
       echo "[oneway] Initializing the Render persistent database."
       npx prisma db push --skip-generate
     fi
+      npx prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20261114000000_recorded_chirps/migration.sql || exit 1
   else
     npx prisma migrate deploy
   fi

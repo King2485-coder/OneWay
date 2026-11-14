@@ -106,7 +106,7 @@ const privacyPatchSchema = z.object({
   allowFriendsOfFriends: z.boolean().optional(),
   allowAnyone: z.boolean().optional(),
   allowDirectChirp: z.boolean().optional(),
-  directChirpAudience: z.enum(["everyone", "contacts", "friendsOfFriends", "verified", "nobody"]).optional(),
+  directChirpAudience: z.enum(["everyone", "contacts", "friendsOfFriends", "verified", "nobody", "following", "friends"]).optional(),
   askBeforeConnecting: z.boolean().optional(),
   allowRepeatChirps: z.boolean().optional(),
   silenceUnknownChirps: z.boolean().optional(),
@@ -493,6 +493,8 @@ export async function isDirectChirpDiscoverable(
   if (!await mayCommunicate(prisma, senderUserId, recipientUserId)) return false;
   if (!privacy.allowDirectChirp || privacy.directChirpAudience === "nobody") return false;
   if (privacy.directChirpAudience === "everyone" || privacy.directChirpAudience === "verified") return true;
+  if (privacy.directChirpAudience === "following") return Boolean(await prisma.socialFollow.findUnique({where:{followerId_followingId:{followerId:recipientUserId,followingId:senderUserId}}}));
+  if (privacy.directChirpAudience === "friends") return Boolean(await prisma.friendship.findFirst({where:{status:"accepted",OR:[{requesterUserId:recipientUserId,recipientUserId:senderUserId},{requesterUserId:senderUserId,recipientUserId:recipientUserId}]}}));
   if (privacy.directChirpAudience === "contacts") return areFriends(prisma, recipientUserId, senderUserId);
   if (privacy.directChirpAudience === "friendsOfFriends") {
     return (await areFriends(prisma, recipientUserId, senderUserId))

@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS "RecordedChirp" ("id" TEXT PRIMARY KEY,"senderId" TEXT NOT NULL,"senderDeviceId" TEXT NOT NULL,"recipientType" TEXT NOT NULL,"recipientId" TEXT NOT NULL,"chirpType" TEXT NOT NULL,"lifetimePolicy" TEXT NOT NULL,"createdAtMs" BIGINT NOT NULL,"expiresAtMs" BIGINT,"storageKey" TEXT,"fingerprint" TEXT NOT NULL,"durationMs" INTEGER NOT NULL,"byteCount" INTEGER NOT NULL,"replyToChirpId" TEXT,"deletedAtMs" BIGINT);
+CREATE INDEX IF NOT EXISTS "RecordedChirp_sender_created" ON "RecordedChirp"("senderId","createdAtMs");
+CREATE INDEX IF NOT EXISTS "RecordedChirp_recipient_created" ON "RecordedChirp"("recipientId","createdAtMs");
+CREATE TABLE IF NOT EXISTS "RecordedChirpReceipt" ("chirpId" TEXT NOT NULL REFERENCES "RecordedChirp"("id") ON DELETE CASCADE,"userId" TEXT NOT NULL,"deliveredAtMs" BIGINT,"openedAtMs" BIGINT,"playedAtMs" BIGINT,"consumedAtMs" BIGINT,"hiddenAtMs" BIGINT,"reaction" TEXT,PRIMARY KEY("chirpId","userId"));
+CREATE TABLE IF NOT EXISTS "RecordedChirpRequest" ("id" TEXT PRIMARY KEY,"senderId" TEXT NOT NULL,"recipientId" TEXT NOT NULL,"state" TEXT NOT NULL,"createdAtMs" BIGINT NOT NULL,"expiresAtMs" BIGINT NOT NULL);
+CREATE INDEX IF NOT EXISTS "RecordedChirpRequest_pair" ON "RecordedChirpRequest"("senderId","recipientId","createdAtMs");
+CREATE TABLE IF NOT EXISTS "RecordedChirpPreference" ("userId" TEXT PRIMARY KEY,"receipts" INTEGER NOT NULL DEFAULT 1,"defaultLifetime" TEXT NOT NULL DEFAULT 'KEEP',"locationEnabled" INTEGER NOT NULL DEFAULT 1);

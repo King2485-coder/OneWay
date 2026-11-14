@@ -1,3 +1,4 @@
+import { recordedChirpsRouter } from "./routes/recordedChirps";
 import {completeGroupRemoval} from "./services/GroupCallMembership";
 import { mayCommunicate } from "./services/AccountVisibility";
 import "dotenv/config";
@@ -795,6 +796,7 @@ mountRouter("/api/shops/messages", shopMessagesRouter({ prisma }));
 mountRouter("/api/platform", platformRouter({ prisma }));
 mountRouter("/api/communication-hub", communicationHubRouter({ db: prisma, authenticate: authMiddleware }));
 mountRouter("/api/stories", storiesRouter({db: prisma, authenticate: authMiddleware, tokens: livekit}));
+mountRouter("/api/chirp/items", recordedChirpsRouter({db: prisma, authenticate: authMiddleware, alerts: emailAlerts}));
 mountRouter("/api/instants", instantsRouter({db: prisma, authenticate: authMiddleware, alerts: emailAlerts}));
 mountRouter("/api/social", socialRouter({ prisma, authenticate: authMiddleware, enabled: () => process.env.ONEWAY_SOCIAL_ENABLED !== "false" }));
 mountRouter("/api/quantum-ai", quantumAIGatewayRouter({ secret: process.env.ONEWAY_AI_GATEWAY_SECRET ?? "" }));
