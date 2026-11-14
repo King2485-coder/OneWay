@@ -39,7 +39,11 @@ test('payment retry is idempotent per immutable quote and money matches provider
  const {handleCommerceStripeEvent}=await import('../src/services/commerce/CommercePayment');
  const event:any={id:'evt_commerce_fixture',type:'checkout.session.completed',data:{object:{id:session.id,metadata:{orderId:a.orderId},amount_total:1200,currency:'usd',payment_status:'unpaid'}}};
  assert.equal(await handleCommerceStripeEvent(db,event),true);assert.equal((await db.order.findUniqueOrThrow({where:{id:a.orderId}})).paymentStatus,'pending_payment');
- event.data.object.payment_status='paid';event.data.object.amount_total=1;await assert.rejects(handleCommerceStripeEvent(db,event),/amount_mismatch/);event.data.object.amount_total=1200;
+ event.data.object.payment_status='paid';
+ event.data.object.id='cs_unrelated';await assert.rejects(handleCommerceStripeEvent(db,event),/session_mismatch/);event.data.object.id=session.id;
+ event.account='acct_unrelated';await assert.rejects(handleCommerceStripeEvent(db,event),/wrong_account/);delete event.account;
+ await handleCommerceStripeEvent(db,{...event,type:'payment_intent.succeeded'});assert.equal((await db.order.findUniqueOrThrow({where:{id:a.orderId}})).paymentStatus,'pending_payment');
+ event.data.object.amount_total=1;await assert.rejects(handleCommerceStripeEvent(db,event),/amount_mismatch/);event.data.object.amount_total=1200;
  const stockBefore=(await db.storefrontProduct.findUniqueOrThrow({where:{id:product}})).inventory;await handleCommerceStripeEvent(db,event);await handleCommerceStripeEvent(db,event);assert.equal((await db.storefrontProduct.findUniqueOrThrow({where:{id:product}})).inventory,stockBefore-2);const paid=await db.order.findUniqueOrThrow({where:{id:a.orderId}});assert.equal(paid.paymentStatus,'paid');assert.equal(paid.oneWayPlatformFeeMinor,30);assert.equal(paid.sellerNetAmountMinor,1170);
  const entries=await db.$queryRawUnsafe<any[]>(`SELECT * FROM ledger_transactions WHERE external_id=?`,`commerce-order:${a.orderId}:seller`);assert.equal(entries.length,1);
 });
