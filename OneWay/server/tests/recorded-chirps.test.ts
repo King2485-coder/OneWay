@@ -69,4 +69,13 @@ test('valid extended-size movie atoms are supported without trusting unbounded l
  assert.equal((await req('alice','','POST',p)).status,201);
  moov.writeBigUInt64BE(999999999999n,8);assert.equal((await req('alice','','POST',{...p,id:randomUUID(),payloadBase64:Buffer.concat([ftyp,moov,mvhd]).toString('base64')})).status,400);
 });
+test('legacy verified-account restrictions fail closed instead of admitting everyone',async()=>{
+ await db.walkiePrivacySettings.update({where:{userId:'bob'},data:{requireVerifiedAccount:true}});
+ assert.equal((await req('alice','/permission/bob').then(r=>r.json())).canRequest,false);
+ assert.equal((await req('alice','','POST',payload())).status,403);
+ assert.equal((await req('bob','/privacy').then(r=>r.json())).verificationRequired,true);
+ await db.walkiePrivacySettings.update({where:{userId:'bob'},data:{requireVerifiedAccount:false,directChirpAudience:'verified'}});
+ assert.equal((await req('alice','/permission/bob').then(r=>r.json())).canRequest,false);
+ await db.walkiePrivacySettings.update({where:{userId:'bob'},data:{directChirpAudience:'everyone'}});
+});
 test('blocks and revoked consent stop delivery across endpoints',async()=>{await db.oneWayContact.create({data:{userId:'bob',contactUserId:'alice',status:'blocked'}});assert.equal((await req('alice','/permission/bob').then(r=>r.json())).canSend,false);assert.equal((await req('alice','','POST',payload())).status,403);assert.equal((await req('bob').then(r=>r.json())).items.length,0);await db.oneWayContact.deleteMany();await req('bob','/permission/alice','DELETE');assert.equal((await req('alice','','POST',payload())).status,403);});

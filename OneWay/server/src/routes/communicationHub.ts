@@ -24,7 +24,7 @@ export function communicationHubRouter(deps:{db:PrismaClient;authenticate:expres
         db.walkiePrivacySettings.findUnique({where:{userId:peer}})
       ]);
       const friend=Boolean(friendship),contact=contacts.includes(peer),allowed=Boolean(exists)&&!blocked&&await mayCommunicate(db,owner,peer);
-      const chirp=allowed&&await isDirectChirpDiscoverable(db,owner,peer,{allowDirectChirp:privacy?.allowDirectChirp??true,directChirpAudience:privacy?.directChirpAudience??'everyone'});
+      const chirp=allowed&&!privacy?.requireVerifiedAccount&&privacy?.directChirpAudience!=='verified'&&await isDirectChirpDiscoverable(db,owner,peer,{allowDirectChirp:privacy?.allowDirectChirp??true,directChirpAudience:privacy?.directChirpAudience??'everyone'});
       res.json({canMessage:allowed,canChirp:chirp,canCall:allowed&&(friend||contact),canVideo:allowed&&(friend||contact),unavailable:!allowed,context:blocked?'Communication unavailable':friend?'Friend':contact?'Contact':following?'Following':'OneWay member',security:'LEGACY_NOT_E2EE'});
     } catch {res.status(503).json({error:'permissions_unavailable'});}
   });
@@ -71,6 +71,7 @@ export function communicationHubRouter(deps:{db:PrismaClient;authenticate:expres
           const peer=item.senderId===owner?item.recipientId:item.senderId;
           if(!await mayCommunicate(db,owner,peer))continue;
           const recipient=await db.walkiePrivacySettings.findUnique({where:{userId:item.recipientId}});
+          if(recipient?.requireVerifiedAccount||recipient?.directChirpAudience==='verified')continue;
           if(!await isDirectChirpDiscoverable(db,item.senderId,item.recipientId,{allowDirectChirp:recipient?.allowDirectChirp??true,directChirpAudience:recipient?.directChirpAudience??'everyone'}))continue;
           const profile=await db.user.findUnique({where:{id:peer},select:{displayName:true,chirpId:true,accountStatus:true}});if(!profile||profile.accountStatus!=='active')continue;
           result.push({id:'recorded:'+item.id,kind:'chirp',threadId:item.id,peerId:peer,peerHandle:profile.chirpId??undefined,title:profile.displayName||'OneWay contact',preview:item.chirpType==='REQUEST'?'Recorded Chirp request':item.chirpType.charAt(0)+item.chirpType.slice(1).toLowerCase()+' Chirp',timestamp:new Date(Number(item.createdAtMs)).toISOString(),unreadCount:item.recipientId===owner&&item.openedAtMs===null?1:0,blocked:false});
