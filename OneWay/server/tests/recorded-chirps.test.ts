@@ -52,4 +52,21 @@ test('private photo previews do not acknowledge opening and never expose View On
  assert.equal((await req('bob','/'+once.id+'/preview')).status,404);
  assert.equal((await req('alice','/'+once.id+'/open','POST')).status,410);
 });
+test('following and friends audiences use the existing directed relationship graph',async()=>{
+ for(const userId of ['alice','bob'])await db.socialProfile.create({data:{userId,handle:userId,displayName:userId}});
+ const setting={audience:'following',receipts:true,defaultLifetime:'KEEP',locationEnabled:true};
+ await req('bob','/privacy','PUT',setting);assert.equal((await req('alice','/permission/bob').then(r=>r.json())).canRequest,false);
+ await db.socialFollow.create({data:{followerId:'bob',followingId:'alice'}});assert.equal((await req('alice','/permission/bob').then(r=>r.json())).canRequest,true);
+ await req('bob','/privacy','PUT',{...setting,audience:'friends'});assert.equal((await req('alice','/permission/bob').then(r=>r.json())).canRequest,false);
+ const friendship=await db.friendship.create({data:{requesterUserId:'alice',recipientUserId:'bob',pairKey:'alice:bob',status:'accepted'}});assert.equal((await req('alice','/permission/bob').then(r=>r.json())).canRequest,true);
+ await db.friendship.delete({where:{id:friendship.id}});await db.socialFollow.deleteMany();await req('bob','/privacy','PUT',{...setting,audience:'everyone'});
+});
+test('valid extended-size movie atoms are supported without trusting unbounded lengths',async()=>{
+ const ftyp=Buffer.alloc(24);ftyp.writeUInt32BE(24);ftyp.write('ftyp',4);ftyp.write('M4A ',8);
+ const mvhd=Buffer.alloc(108);mvhd.writeUInt32BE(108);mvhd.write('mvhd',4);mvhd.writeUInt32BE(1000,20);mvhd.writeUInt32BE(1000,24);
+ const moov=Buffer.alloc(16);moov.writeUInt32BE(1);moov.write('moov',4);moov.writeBigUInt64BE(124n,8);
+ const p={...payload(),chirpType:'VOICE',mimeType:'audio/mp4',durationMs:1000,payloadBase64:Buffer.concat([ftyp,moov,mvhd]).toString('base64')};
+ assert.equal((await req('alice','','POST',p)).status,201);
+ moov.writeBigUInt64BE(999999999999n,8);assert.equal((await req('alice','','POST',{...p,id:randomUUID(),payloadBase64:Buffer.concat([ftyp,moov,mvhd]).toString('base64')})).status,400);
+});
 test('blocks and revoked consent stop delivery across endpoints',async()=>{await db.oneWayContact.create({data:{userId:'bob',contactUserId:'alice',status:'blocked'}});assert.equal((await req('alice','/permission/bob').then(r=>r.json())).canSend,false);assert.equal((await req('alice','','POST',payload())).status,403);assert.equal((await req('bob').then(r=>r.json())).items.length,0);await db.oneWayContact.deleteMany();await req('bob','/permission/alice','DELETE');assert.equal((await req('alice','','POST',payload())).status,403);});

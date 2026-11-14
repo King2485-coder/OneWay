@@ -21,16 +21,18 @@ function mediaDuration(bytes:Buffer):number|null {
  const scan=(start:number,end:number,depth:number):number|null=>{
   if(depth>2)return null;
   for(let at=start;at+8<=end;){
-   const size=bytes.readUInt32BE(at),type=bytes.toString('ascii',at+4,at+8);
-   if(size<8||at+size>end)return null;
+   let size=bytes.readUInt32BE(at),header=8;const type=bytes.toString('ascii',at+4,at+8);
+   if(size===1){if(at+16>end)return null;const wide=bytes.readBigUInt64BE(at+8);if(wide>BigInt(end-at))return null;size=Number(wide);header=16;}
+   else if(size===0)size=end-at;
+   if(size<header||at+size>end)return null;
    if(type==='mvhd'){
-    const p=at+8,version=bytes[p];if(version!==0&&version!==1)return null;
+    const p=at+header,version=bytes[p];if(version!==0&&version!==1)return null;
     const scaleAt=p+(version===1?20:12),durationAt=scaleAt+4;
     if(durationAt+(version===1?8:4)>at+size)return null;
     const scale=bytes.readUInt32BE(scaleAt),duration=version===1?Number(bytes.readBigUInt64BE(durationAt)):bytes.readUInt32BE(durationAt);
     return scale>0?duration*1000/scale:null;
    }
-   if(type==='moov'){const found=scan(at+8,at+size,depth+1);if(found!==null)return found;}
+   if(type==='moov'){const found=scan(at+header,at+size,depth+1);if(found!==null)return found;}
    at+=size;
   }return null;
  };return scan(0,bytes.length,0);
