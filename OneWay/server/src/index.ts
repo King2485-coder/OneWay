@@ -1,3 +1,5 @@
+import {commerceEvents,remindDueCommerceRules} from "./services/commerce/CommerceEvents";
+import {commerceRouter} from "./routes/commerce";
 import { quantumDiscoveryRouter, ensureQuantumDiscoveryIndexes } from "./routes/quantumDiscovery";
 import { recordedChirpsRouter } from "./routes/recordedChirps";
 import {completeGroupRemoval} from "./services/GroupCallMembership";
@@ -737,6 +739,10 @@ const registry: ICallRegistry = (() => {
 const pushTokens = new PushTokenStore();
 const alertPushTokens = new AlertPushTokenStore(prisma);
 const emailAlerts = new EmailAlertPushService(alertPushTokens);
+commerceEvents.on("updated", (event: {userId:string;orderId:string;review:boolean}) => { void emailAlerts.sendCommerceAlert(event).catch(() => {}); });
+const commerceReminderTimer = setInterval(() => { void remindDueCommerceRules(prisma, userId => emailAlerts.sendCommerceAlert({userId,orderId:"",review:true})).catch(() => {}); }, 60000);
+commerceReminderTimer.unref();
+
 const voipPush = new VoIPPushService(pushTokens);
 const history = new CallHistoryService();
 
@@ -799,6 +805,7 @@ mountRouter("/api/communication-hub", communicationHubRouter({ db: prisma, authe
 mountRouter("/api/stories", storiesRouter({db: prisma, authenticate: authMiddleware, tokens: livekit}));
 mountRouter("/api/chirp/items", recordedChirpsRouter({db: prisma, authenticate: authMiddleware, alerts: emailAlerts}));
 mountRouter("/api/instants", instantsRouter({db: prisma, authenticate: authMiddleware, alerts: emailAlerts}));
+mountRouter("/api/commerce", commerceRouter({db:prisma,authenticate:authMiddleware,notify:(userId,orderId,review)=>emailAlerts.sendCommerceAlert({userId,orderId,review})}));
 mountRouter("/api/quantum", quantumDiscoveryRouter({db: prisma, authenticate: authMiddleware}));
 mountRouter("/api/social", socialRouter({ prisma, authenticate: authMiddleware, enabled: () => process.env.ONEWAY_SOCIAL_ENABLED !== "false" }));
 mountRouter("/api/quantum-ai", quantumAIGatewayRouter({ secret: process.env.ONEWAY_AI_GATEWAY_SECRET ?? "" }));

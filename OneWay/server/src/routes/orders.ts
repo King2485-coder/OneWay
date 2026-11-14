@@ -1,3 +1,4 @@
+import {randomUUID} from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 import express from "express";
 import { z } from "zod";
@@ -118,14 +119,16 @@ export function ordersRouter({ prisma }: { prisma: PrismaClient }) {
       paymentStatus,
     });
 
+    const intendedOrderID = randomUUID();
     let stripeCheckoutId: string | undefined;
     let checkoutUrl: string | null = null;
     if (stripe) {
       const connectedAccountId = sellerPaymentAccount[0]!.stripeAccountId;
       const session = await stripe.checkout.sessions.create({
-        payment_method_types: ["card"],
         mode: "payment",
+        client_reference_id: intendedOrderID,
         metadata: {
+          orderId: intendedOrderID,
           onewayOrderIntent: "shop_checkout",
           storeId,
           sellerId: sellerId ?? "",
@@ -138,6 +141,7 @@ export function ordersRouter({ prisma }: { prisma: PrismaClient }) {
             destination: connectedAccountId,
           },
           metadata: {
+            orderId: intendedOrderID,
             onewayOrderIntent: "shop_checkout",
             storeId,
             sellerId: sellerId ?? "",
@@ -159,13 +163,14 @@ export function ordersRouter({ prisma }: { prisma: PrismaClient }) {
         })),
         success_url: process.env.STRIPE_SUCCESS_URL ?? "https://oneway.is/success",
         cancel_url: process.env.STRIPE_CANCEL_URL ?? "https://oneway.is/cancel",
-      });
+      }, {idempotencyKey: parsed.data.idempotencyKey ? `legacy-order:${userId}:${parsed.data.idempotencyKey}` : intendedOrderID});
       stripeCheckoutId = session.id;
       checkoutUrl = session.url;
     }
 
     const order = await prisma.order.create({
       data: {
+        id: intendedOrderID,
         userId,
         storeId,
         sellerId,

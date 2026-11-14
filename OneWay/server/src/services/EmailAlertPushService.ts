@@ -65,6 +65,10 @@ export class EmailAlertPushService {
       copy: () => ({title: "OneWay", body: input.recordedMedia ? "New voice-message or media request. Open OneWay to accept or decline." : "New Chirp invitation. Open OneWay to accept or decline."})});
   }
 
+  async sendCommerceAlert(input: {userId:string;orderId:string;review:boolean}):Promise<void> {
+    await this.sendAlert({userId:input.userId,eventType:"commerce.order.updated",threadId:"order:"+input.orderId,deepLink:"oneway://orders/"+input.orderId,messageId:input.orderId,copy:()=>({title:"OneWay",body:input.review?"Your order needs review. Open OneWay to respond.":"Your order has an update. Open OneWay to view it."})});
+  }
+
   private async sendAlert(input: {
     userId: string;
     eventType: string;

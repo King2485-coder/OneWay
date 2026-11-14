@@ -89,7 +89,13 @@ export function shopMessagesRouter(deps: ShopMessagesDeps = {}): express.Router 
       return;
     }
 
-    const sellerUserId = parsed.data.sellerUserId ?? `seller:${parsed.data.shopId}`;
+    const merchant = await db.storefront.findUnique({ where: { id: parsed.data.shopId } });
+    const sellerUserId = merchant?.ownerId ?? parsed.data.sellerUserId ?? `seller:${parsed.data.shopId}`;
+    // An order context is private: only its actual buyer may attach it to this merchant thread.
+    if (parsed.data.orderId) {
+      const order = await db.order.findFirst({ where: { id: parsed.data.orderId, userId, storeId: parsed.data.shopId, sellerId: sellerUserId } });
+      if (!order) { res.status(404).json({ error: "order_not_found" }); return; }
+    }
     if (await isBlocked(db, userId, sellerUserId) || await isBlocked(db, sellerUserId, userId)) {
       logger.warn({ event: "SHOP_MESSAGE_PERMISSION_DENIED", errorCode: "blocked_by_recipient" }, "[shops:messages]");
       res.status(403).json({ error: "blocked_by_recipient" });

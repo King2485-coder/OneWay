@@ -26,6 +26,7 @@ interface StripeModule {
           url: string | null;
         }>;
         retrieve(id: string, input?: Record<string, unknown>, options?: Record<string, unknown>): Promise<Record<string, any>>;
+        expire(id: string, input?: Record<string, unknown>, options?: Record<string, unknown>): Promise<Record<string, any>>;
       };
     };
     prices: {

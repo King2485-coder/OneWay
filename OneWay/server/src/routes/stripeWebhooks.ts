@@ -1,3 +1,4 @@
+import {handleCommerceStripeEvent} from "../services/commerce/CommercePayment";
 import type { PrismaClient } from "@prisma/client";
 import express from "express";
 
@@ -198,6 +199,7 @@ async function processStripeEvent(prisma: PrismaClient, event: StripeEvent): Pro
   const type = String(event.type ?? "");
   const object = event.data?.object ?? {};
   if (await processServiceOrderStripeEvent(prisma, event)) return;
+  if (await handleCommerceStripeEvent(prisma, event)) return;
   switch (type) {
     case "account.updated":
       await handleAccountUpdated(prisma, object);
