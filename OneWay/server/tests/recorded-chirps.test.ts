@@ -38,4 +38,9 @@ test('unified inbox projects recorded Chirps without private content',async()=>{
  assert.ok(response.rows.some((r:any)=>r.kind==='chirp'&&r.id.startsWith('recorded:')));
  assert.doesNotMatch(JSON.stringify(response.rows),/Private synthetic|payloadBase64|storageKey|latitude|longitude/);
 });
+test('UUID recipients are canonical across permission and request paths',async()=>{
+ const peer=randomUUID();await db.user.create({data:{id:peer,email:peer+'@test.invalid',displayName:'Synthetic recipient'}});
+ assert.equal((await req('alice','/permission/'+peer.toUpperCase()).then(r=>r.json())).canRequest,true);
+ assert.equal((await req('alice','/requests','POST',{recipientId:peer.toUpperCase()})).status,201);
+});
 test('blocks and revoked consent stop delivery across endpoints',async()=>{await db.oneWayContact.create({data:{userId:'bob',contactUserId:'alice',status:'blocked'}});assert.equal((await req('alice','/permission/bob').then(r=>r.json())).canSend,false);assert.equal((await req('alice','','POST',payload())).status,403);assert.equal((await req('bob').then(r=>r.json())).items.length,0);await db.oneWayContact.deleteMany();await req('bob','/permission/alice','DELETE');assert.equal((await req('alice','','POST',payload())).status,403);});

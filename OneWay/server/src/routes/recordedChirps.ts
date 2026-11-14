@@ -11,7 +11,7 @@ import {LocalObjectStorage} from '../lib/storage/LocalObjectStorage';
 import {S3ObjectStorage} from '../lib/storage/S3ObjectStorage';
 import {validCloudMedia} from './cloudMedia';
 import type {EmailAlertPushService} from '../services/EmailAlertPushService';
-const id=z.string().uuid().transform(s=>s.toLowerCase()),who=z.string().min(1).max(128);
+const id=z.string().uuid().transform(s=>s.toLowerCase()),who=z.string().trim().min(1).max(128).transform(s=>z.string().uuid().safeParse(s).success?s.toLowerCase():s);
 const life=z.enum(['KEEP','VIEW_ONCE','ONE_HOUR','TWENTY_FOUR_HOURS']);
 const kind=z.enum(['VOICE','PHOTO','VIDEO','LOCATION']);
 const location=z.object({name:z.string().trim().min(1).max(160),latitude:z.number().min(-90).max(90),longitude:z.number().min(-180).max(180)}).strict();
