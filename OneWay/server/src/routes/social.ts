@@ -235,6 +235,12 @@ export function socialRouter(deps: { prisma: PrismaClient; authenticate: Request
     const hasMore = posts.length > page.limit; const items = posts.slice(0, page.limit); const last = items.at(-1);
     res.json({ posts: await Promise.all(items.map(postDTO)), next: hasMore && last ? { before: last.createdAt.toISOString(), beforeId: last.id } : null });
   }));
+  router.get("/posts/:id", wrap(async(req,res)=>{
+    const id=z.string().uuid().parse(req.params.id);
+    const post=await prisma.socialPost.findFirst({where:{AND:[await visiblePosts(uid(req)),{id}]},include:{author:{select:authorSelect}}});
+    if(!post)return res.status(404).json({error:"post_not_found"});
+    return res.json({post:await postDTO(post)});
+  }));
   router.post("/posts", writes, wrap(async (req, res) => {
     const data = postSchema.parse(req.body);
     const profile = await prisma.socialProfile.findUnique({ where: { userId: uid(req) } });

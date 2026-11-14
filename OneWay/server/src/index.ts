@@ -1,3 +1,4 @@
+import { quantumDiscoveryRouter, ensureQuantumDiscoveryIndexes } from "./routes/quantumDiscovery";
 import { recordedChirpsRouter } from "./routes/recordedChirps";
 import {completeGroupRemoval} from "./services/GroupCallMembership";
 import { mayCommunicate } from "./services/AccountVisibility";
@@ -798,6 +799,7 @@ mountRouter("/api/communication-hub", communicationHubRouter({ db: prisma, authe
 mountRouter("/api/stories", storiesRouter({db: prisma, authenticate: authMiddleware, tokens: livekit}));
 mountRouter("/api/chirp/items", recordedChirpsRouter({db: prisma, authenticate: authMiddleware, alerts: emailAlerts}));
 mountRouter("/api/instants", instantsRouter({db: prisma, authenticate: authMiddleware, alerts: emailAlerts}));
+mountRouter("/api/quantum", quantumDiscoveryRouter({db: prisma, authenticate: authMiddleware}));
 mountRouter("/api/social", socialRouter({ prisma, authenticate: authMiddleware, enabled: () => process.env.ONEWAY_SOCIAL_ENABLED !== "false" }));
 mountRouter("/api/quantum-ai", quantumAIGatewayRouter({ secret: process.env.ONEWAY_AI_GATEWAY_SECRET ?? "" }));
 mountRouter("/api/growth/events", growthEventsRouter({ prisma }));
@@ -1023,6 +1025,7 @@ async function initializeServer(): Promise<void> {
   await ensurePrivacyLifecycleSchema(prisma);
   await ensurePlatformCapabilityTables(prisma);
   await ensureCommunityTables(prisma);
+  await ensureQuantumDiscoveryIndexes(prisma);
   await ensurePricingAgentTables(prisma);
   await reconcileAllSitePublicationsOnStartup(prisma);
   await initializeDormantComplianceLayer();
