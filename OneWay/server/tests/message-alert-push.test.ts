@@ -79,3 +79,13 @@ test("Chirp invitations use a private generic alert and open the Chirp page", as
   assert.equal(sent[0].note.payload.deepLink,"oneway://chirp");
   assert.deepEqual(sent[0].note.payload.aps.alert,{title:"OneWay",body:"New Chirp invitation. Open OneWay to accept or decline."});
 });
+
+test("screenshot privacy alert carries no person, device or message content",async()=>{
+ const {service,sent}=makeService({previewMode:"sender_subject",soundEnabled:true});
+ await service.sendPrivacyEvent("recipient","event-id");
+ assert.equal(sent.length,1);
+ assert.deepEqual(sent[0].note.payload.aps.alert,{title:"OneWay Privacy",body:"Screenshot detected in a protected conversation."});
+ assert.equal(sent[0].note.payload.eventType,"conversation.privacy.screenshot");
+ for(const key of ["actorUserId","sender","deviceId","message","body"])assert.equal(key in sent[0].note.payload,false);
+ const disabled=makeService({previewMode:"none",soundEnabled:false});await disabled.service.sendPrivacyEvent("recipient","event-id");assert.equal(disabled.sent.length,0);
+});

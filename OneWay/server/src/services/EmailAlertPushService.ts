@@ -53,6 +53,11 @@ export class EmailAlertPushService {
       copy: () => ({title: "OneWay", body: "You received an instant photo. Open Messages to view it."})});
   }
 
+  async sendPrivacyEvent(userId: string, eventId: string): Promise<void> {
+    await this.sendAlert({userId,eventType:"conversation.privacy.screenshot",threadId:"privacy",deepLink:"oneway://messages",messageId:eventId,expirySeconds:3600,
+      copy:()=>({title:"OneWay Privacy",body:"Screenshot detected in a protected conversation."})});
+  }
+
   async sendRecordedChirp(input: {userId:string;chirpId:string;expiresAtMs:number|null}):Promise<void> {
     const remaining=input.expiresAtMs==null?3600:Math.floor((input.expiresAtMs-Date.now())/1000);
     if(remaining<=0)return;
