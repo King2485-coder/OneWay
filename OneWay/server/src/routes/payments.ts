@@ -6,6 +6,7 @@ import { z } from "zod";
 import { authMiddleware, type AuthenticatedRequest } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { createStripeClient, stripeConfigured } from "../services/stripe";
+import { assertProductionCheckoutAllowed, ProductionCheckoutBlocked } from "../services/payments/ProductionPaymentGate";
 import { ensurePaymentTables } from "../services/payments/PaymentTables";
 import { calculateMarketplaceOrderLedger, marketplaceFeeConfiguration } from "../services/marketplaceFee";
 
@@ -310,6 +311,8 @@ export function paymentsRouter({ prisma }: { prisma: PrismaClient }): express.Ro
     const order = await loadBuyerOrder(prisma, parsed.data.orderId, userId);
     if (!order) return res.status(404).json({ ok: false, error: "order_not_found" });
     if (order.paymentStatus === "paid") return res.status(409).json({ ok: false, error: "order_already_paid" });
+    try {await assertProductionCheckoutAllowed({userId,orderId:order.id,merchantId:order.storeId??'',amountMinor:order.customerTotalMinor,currency:order.currency,entryPoint:'marketplace_intent',paymentStatus:order.paymentStatus},()=>stripe.accounts.retrieve());}
+    catch(error){if(error instanceof ProductionCheckoutBlocked)return res.status(error.status).json({ok:false,error:error.code});return res.status(503).json({ok:false,error:'payment_readiness_unavailable'});}
     const sellerAccount = await sellerAccountForOrder(prisma, order);
     if (!sellerAccount || !truthyDbBoolean(sellerAccount.chargesEnabled)) {
       return res.status(409).json({ ok: false, error: "seller_payments_not_ready", onboardingStatus: sellerAccount?.onboardingStatus ?? "NOT_STARTED" });
@@ -323,7 +326,7 @@ export function paymentsRouter({ prisma }: { prisma: PrismaClient }): express.Ro
       application_fee_amount: order.oneWayPlatformFeeMinor,
       transfer_data: { destination: sellerAccount.stripeAccountId },
       metadata,
-    }, { idempotencyKey: parsed.data.idempotencyKey ?? `pi:${order.id}` });
+    }, { idempotencyKey: `pi:${order.id}` });
 
     await prisma.order.update({
       where: { id: order.id },
@@ -357,6 +360,8 @@ export function paymentsRouter({ prisma }: { prisma: PrismaClient }): express.Ro
     const order = await loadBuyerOrderWithItems(prisma, parsed.data.orderId, userId);
     if (!order) return res.status(404).json({ ok: false, error: "order_not_found" });
     if (order.paymentStatus === "paid") return res.status(409).json({ ok: false, error: "order_already_paid" });
+    try {await assertProductionCheckoutAllowed({userId,orderId:order.id,merchantId:order.storeId??'',amountMinor:order.customerTotalMinor,currency:order.currency,entryPoint:'marketplace_checkout',paymentStatus:order.paymentStatus},()=>stripe.accounts.retrieve());}
+    catch(error){if(error instanceof ProductionCheckoutBlocked)return res.status(error.status).json({ok:false,error:error.code});return res.status(503).json({ok:false,error:'payment_readiness_unavailable'});}
     const sellerAccount = await sellerAccountForOrder(prisma, order);
     if (!sellerAccount || !truthyDbBoolean(sellerAccount.chargesEnabled)) {
       return res.status(409).json({ ok: false, error: "seller_payments_not_ready", onboardingStatus: sellerAccount?.onboardingStatus ?? "NOT_STARTED" });
@@ -366,7 +371,6 @@ export function paymentsRouter({ prisma }: { prisma: PrismaClient }): express.Ro
       mode: "payment",
       client_reference_id: order.id,
       metadata,
-      payment_method_types: ["card"],
       payment_intent_data: {
         application_fee_amount: order.oneWayPlatformFeeMinor,
         transfer_data: { destination: sellerAccount.stripeAccountId },
@@ -382,7 +386,7 @@ export function paymentsRouter({ prisma }: { prisma: PrismaClient }): express.Ro
       })),
       success_url: process.env.STRIPE_SUCCESS_URL ?? "https://oneway.is/success",
       cancel_url: process.env.STRIPE_CANCEL_URL ?? "https://oneway.is/cancel",
-    }, { idempotencyKey: parsed.data.idempotencyKey ?? `checkout:${order.id}` });
+    }, { idempotencyKey: `checkout:${order.id}` });
     await prisma.order.update({
       where: { id: order.id },
       data: { stripeCheckoutId: String(session.id ?? ""), paymentStatus: "pending_payment", status: "pending_payment", updatedAt: new Date() },

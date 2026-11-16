@@ -138,7 +138,7 @@ async function handleStripeWebhook(req: express.Request, res: express.Response, 
   try {
     event = stripe.webhooks.constructEvent(rawBody(req), signature, webhookSecret);
   } catch (error) {
-    logger.warn({ err: error }, "PAYMENT_WEBHOOK_SIGNATURE_REJECTED");
+    logger.warn({ reason: "invalid_signature" }, "PAYMENT_WEBHOOK_SIGNATURE_REJECTED");
     res.status(400).json({ ok: false, error: "invalid_stripe_signature" });
     return;
   }
@@ -168,6 +168,7 @@ async function handleStripeWebhook(req: express.Request, res: express.Response, 
     objectId,
     livemode,
   });
+  if (persisted.busy) { res.status(503).json({ok:false,error:"webhook_processing_in_progress"}); return; }
   if (persisted.duplicate) {
     logger.info({ stripeEventId, eventType, connectedAccountId }, "PAYMENT_WEBHOOK_DUPLICATE_IGNORED");
     res.json({ ok: true, duplicate: true });
@@ -187,11 +188,11 @@ async function handleStripeWebhook(req: express.Request, res: express.Response, 
     }
     res.json({ ok: true, received: true });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "webhook_processing_failed";
+    const message = "webhook_processing_failed";
     await markEvent(prisma, stripeEventId, "FAILED", message.slice(0, 500));
-    logger.error({ err: error, stripeEventId, eventType, connectedAccountId }, "PAYMENT_WEBHOOK_FAILED");
-    // Event was durably accepted. Internal retry/reconciliation can process FAILED events.
-    res.json({ ok: true, received: true, processingStatus: "FAILED" });
+    logger.error({ stripeEventId, eventType, connectedAccountId, errorCode: message }, "PAYMENT_WEBHOOK_FAILED");
+    // Stripe must retry a failed handler; durable storage alone is not successful processing.
+    res.status(500).json({ ok: false, received: true, processingStatus: "FAILED" });
   }
 }
 
@@ -327,7 +328,7 @@ async function handlePaymentIntentSucceeded(prisma: PrismaClient, event: StripeE
   if (amount !== order.customerTotalMinor || currency !== order.currency.toUpperCase()) {
     throw new Error("payment_intent_order_amount_mismatch");
   }
-  if (["paid", "captured"].includes(order.paymentStatus)) return;
+  if (["paid", "captured", "refunded", "partially_refunded"].includes(order.paymentStatus)) return;
 
   await prisma.$transaction(async (tx) => {
     await tx.order.update({
@@ -378,8 +379,8 @@ async function handlePaymentIntentSucceeded(prisma: PrismaClient, event: StripeE
 async function handlePaymentIntentProgress(prisma: PrismaClient, intent: Record<string, any>, type: string): Promise<void> {
   const orderId = safeMetadata(intent, "orderId");
   if (!orderId) return;
-  await prisma.order.updateMany({
-    where: { id: orderId, paymentStatus: { notIn: ["paid", "captured", "refunded"] } },
+  const changed = await prisma.order.updateMany({
+    where: { id: orderId, paymentStatus: { notIn: ["paid", "captured", "refunded", "partially_refunded"] } },
     data: {
       paymentIntentId: String(intent.id ?? ""),
       paymentStatus: type === "payment_intent.processing" ? "processing" : "created",
@@ -387,6 +388,7 @@ async function handlePaymentIntentProgress(prisma: PrismaClient, intent: Record<
       updatedAt: new Date(),
     },
   });
+  if(changed.count===0)return;
   await prisma.$executeRawUnsafe(
     `UPDATE "ShopPayment" SET "status" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE "stripePaymentIntentId" = ? OR "orderId" = ?`,
     type === "payment_intent.processing" ? "PROCESSING" : "CREATED",
@@ -399,14 +401,15 @@ async function handlePaymentIntentFailure(prisma: PrismaClient, intent: Record<s
   if (await handleAdsPaymentIntentFailed(prisma, { id: `${type}:${String(intent.id ?? "")}`, type }, intent)) return;
   const orderId = safeMetadata(intent, "orderId");
   if (!orderId) return;
-  await prisma.order.updateMany({
-    where: { id: orderId, paymentStatus: { notIn: ["paid", "captured", "refunded"] } },
+  const changed = await prisma.order.updateMany({
+    where: { id: orderId, paymentStatus: { notIn: ["paid", "captured", "refunded", "partially_refunded"] } },
     data: {
       paymentStatus: type === "payment_intent.canceled" ? "canceled" : "failed",
       status: type === "payment_intent.canceled" ? "canceled" : "payment_failed",
       updatedAt: new Date(),
     },
   });
+  if(changed.count===0)return;
   await prisma.$executeRawUnsafe(
     `UPDATE "ShopPayment" SET "status" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE "stripePaymentIntentId" = ? OR "orderId" = ?`,
     type === "payment_intent.canceled" ? "CANCELED" : "FAILED",
@@ -421,10 +424,11 @@ async function handleCheckoutSession(prisma: PrismaClient, session: Record<strin
   if (!orderId) return;
   const paymentStatus = String(session.payment_status ?? "");
   const nextStatus = type.endsWith("failed") ? "failed" : paymentStatus === "paid" ? "paid" : "pending_payment";
-  await prisma.order.updateMany({
-    where: { id: orderId, paymentStatus: { notIn: ["paid", "captured", "refunded"] } },
+  const changed = await prisma.order.updateMany({
+    where: { id: orderId, paymentStatus: { notIn: ["paid", "captured", "refunded", "partially_refunded"] } },
     data: { paymentStatus: nextStatus, status: nextStatus, updatedAt: new Date() },
   });
+  if(changed.count===0)return;
   await prisma.$executeRawUnsafe(
     `UPDATE "ShopPayment" SET "status" = ?, "stripePaymentIntentId" = COALESCE(?, "stripePaymentIntentId"), "updatedAt" = CURRENT_TIMESTAMP WHERE "stripeCheckoutSessionId" = ? OR "orderId" = ?`,
     nextStatus.toUpperCase(),
@@ -655,7 +659,7 @@ async function persistEvent(
   prisma: PrismaClient,
   event: StripeEvent,
   metadata: { stripeEventId: string; eventType: string; connectedAccountId: string | null; objectId: string | null; livemode: boolean },
-): Promise<{ duplicate: boolean }> {
+): Promise<{ duplicate: boolean; busy?: boolean }> {
   const safePayload = JSON.stringify(redactPayload(event)).slice(0, 200_000);
   const inserted = await prisma.$executeRawUnsafe(
     `INSERT OR IGNORE INTO "StripeWebhookEvent" (
@@ -671,11 +675,14 @@ async function persistEvent(
     safePayload,
   );
   if (Number(inserted) === 0) {
-    await prisma.$executeRawUnsafe(
-      `UPDATE "StripeWebhookEvent" SET "attemptCount" = "attemptCount" + 1, "updatedAt" = CURRENT_TIMESTAMP WHERE "stripeEventId" = ?`,
-      metadata.stripeEventId,
-    );
-    return { duplicate: true };
+    // Claim a failed or abandoned delivery atomically. Never acknowledge an
+    // in-flight handler as successful just because its event ID was persisted.
+    const reclaimed=await prisma.$executeRawUnsafe(
+      `UPDATE "StripeWebhookEvent" SET "status"='RECEIVED', "attemptCount"="attemptCount"+1, "updatedAt"=CURRENT_TIMESTAMP, "processedAt"=NULL
+       WHERE "stripeEventId"=? AND ("status"='FAILED' OR ("status"='RECEIVED' AND "updatedAt"<datetime('now','-5 minutes')))`,metadata.stripeEventId);
+    if(Number(reclaimed)===1)return {duplicate:false};
+    const rows=await prisma.$queryRawUnsafe<Array<{status:string}>>(`SELECT "status" FROM "StripeWebhookEvent" WHERE "stripeEventId"=?`,metadata.stripeEventId);
+    return ['PROCESSED','IGNORED'].includes(rows[0]?.status)?{duplicate:true}:{duplicate:false,busy:true};
   }
   return { duplicate: false };
 }

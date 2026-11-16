@@ -2,7 +2,7 @@ interface StripeModule {
   new (secretKey: string, config?: { apiVersion?: string }): {
     accounts: {
       create(input: Record<string, unknown>, options?: Record<string, unknown>): Promise<Record<string, any>>;
-      retrieve(id: string): Promise<Record<string, any>>;
+      retrieve(id?: string): Promise<Record<string, any>>;
     };
     accountLinks: {
       create(input: Record<string, unknown>, options?: Record<string, unknown>): Promise<Record<string, any>>;

@@ -1,9 +1,14 @@
 import type { PrismaClient } from "@prisma/client";
 
-let ready = false;
+const ready = new WeakMap<PrismaClient, Promise<void>>();
 
 export async function ensurePaymentTables(prisma: PrismaClient): Promise<void> {
-  if (ready) return;
+  let pending=ready.get(prisma);
+  if(!pending){pending=createPaymentTables(prisma).catch(error=>{ready.delete(prisma);throw error;});ready.set(prisma,pending);}
+  await pending;
+}
+
+async function createPaymentTables(prisma: PrismaClient): Promise<void> {
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "SellerPaymentAccount" (
       "id" TEXT PRIMARY KEY,
@@ -139,6 +144,8 @@ export async function ensurePaymentTables(prisma: PrismaClient): Promise<void> {
       "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  const eventColumns=await prisma.$queryRawUnsafe<Array<{name:string}>>('PRAGMA table_info("StripeWebhookEvent")');
+  for(const column of ['relatedEntityType','relatedEntityId'])if(!eventColumns.some(c=>c.name===column))await prisma.$executeRawUnsafe(`ALTER TABLE "StripeWebhookEvent" ADD COLUMN "${column}" TEXT`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "StripeWebhookEvent_type_status_idx" ON "StripeWebhookEvent" ("eventType", "status")`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "StripeWebhookEvent_account_idx" ON "StripeWebhookEvent" ("stripeAccountId")`);
 
@@ -308,5 +315,5 @@ export async function ensurePaymentTables(prisma: PrismaClient): Promise<void> {
       'MARKETPLACE_ORDER_FLAT', 30, 'USD', 'PER_ORDER', true, 'NOT_REQUIRED', false, true
     )
   `);
-  ready = true;
+
 }

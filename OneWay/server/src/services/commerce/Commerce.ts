@@ -6,6 +6,7 @@ import {parsePrice} from '../catalog';
 import {calculateMarketplaceOrderLedger} from '../marketplaceFee';
 import {createStripeClient} from '../stripe';
 import {ensurePaymentTables} from '../payments/PaymentTables';
+import {assertProductionCheckoutAllowed,ProductionCheckoutBlocked} from '../payments/ProductionPaymentGate';
 
 export class CommerceError extends Error {constructor(public code:string,public status=409){super(code);}}
 export const money=z.number().int().min(0).max(10000000);
@@ -82,7 +83,9 @@ export class CommerceService {
   const quote=await this.get(userId,'quote',quoteId);if(new Date(quote.expiresAt).getTime()<this.clock())throw new CommerceError('quote_expired');
   const fresh=await this.quote(userId,{items:quote.items.map((i:any)=>({productId:i.productId,quantity:i.quantity,options:i.options})),preferences:quote.preferences,savedOrderId:quote.savedOrderId??undefined,scheduleId:quote.scheduleId??undefined},false,existing?.id);
   if(fresh.unavailable.length)throw new CommerceError('items_unavailable');if(fresh.scheduledFor!==quote.scheduledFor||fresh.totalMinor!==quote.totalMinor||JSON.stringify(fresh.items)!==JSON.stringify(quote.items))throw new CommerceError('price_changed_refresh_required');
+  try {await assertProductionCheckoutAllowed({userId,orderId:existing?.id??'',merchantId:quote.merchantId,amountMinor:quote.totalMinor,currency:quote.currency,entryPoint:'commerce_checkout',paymentStatus:existing?.paymentStatus},async()=>{const client=this.stripeFactory();if(!client)throw new CommerceError('payments_unavailable',503);return client.accounts.retrieve();});}catch(error){if(error instanceof ProductionCheckoutBlocked)throw new CommerceError(error.code,error.status);throw error;}
   if(existing){const state=await this.orderState(existing);if(state.quoteId!==quoteId)throw new CommerceError('idempotency_conflict');if(existing.storeId!==quote.merchantId||existing.customerTotalMinor!==quote.totalMinor)throw new CommerceError('idempotency_conflict');if(existing.stripeCheckoutId){const stripe=this.stripeFactory();const session=await stripe?.checkout.sessions.retrieve(existing.stripeCheckoutId);return {orderId:existing.id,checkoutUrl:session?.url??null,paymentStatus:existing.paymentStatus};}}
+
   const stripe=this.stripeFactory();if(!stripe)throw new CommerceError('payments_unavailable',503);
   await ensurePaymentTables(this.db);
   const accounts=await this.db.$queryRawUnsafe<any[]>(`SELECT * FROM "SellerPaymentAccount" WHERE "sellerUserId"=(SELECT "ownerId" FROM "Storefront" WHERE "id"=?) AND COALESCE("shopId",'') IN (?, '') ORDER BY CASE WHEN "shopId" IS NULL THEN 1 ELSE 0 END LIMIT 1`,quote.merchantId,quote.merchantId);const account=accounts[0];if(!account||!account.chargesEnabled)throw new CommerceError('seller_payments_not_ready');

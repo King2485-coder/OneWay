@@ -1,0 +1,57 @@
+{
+  "date": "2026-11-16",
+  "verdict": "STRIPE PRODUCTION CANARY PARTIAL \u2014 FIXES REQUIRED",
+  "phase": "PRECHARGE_BLOCKED",
+  "accountId": "acct_1RHMj0JfQNWW1ymK",
+  "livemode": true,
+  "runtimeAuthentication": 200,
+  "runtimeStripeEnvironment": "production",
+  "liveServerKeyFormat": true,
+  "livePublishableKeyFormat": true,
+  "webhookConfigured": true,
+  "publicCheckoutEnabled": false,
+  "canaryApprovalConfigured": false,
+  "connectedStripeAccounts": 0,
+  "productionCountsBefore": {
+    "Order": 0,
+    "ShopPayment": 0,
+    "SellerPaymentAccount": 0,
+    "StripeWebhookEvent": 0
+  },
+  "canaryOrderId": null,
+  "canaryAmountMinor": null,
+  "canaryCurrency": null,
+  "paymentIntentId": null,
+  "checkoutSessionId": null,
+  "chargeId": null,
+  "chargesInitiated": 0,
+  "refundsInitiated": 0,
+  "liveProviderEventsObserved": [],
+  "ownerExactTransactionApproval": "NOT_REQUESTED_NOT_READY",
+  "excludedFixtureShop": {
+    "id": "99dc5561-6373-4c17-be5c-c113e1401289",
+    "reason": "Owner confirms it is a fake workflow-test shop; not eligible for a live purchase."
+  },
+  "productionEquivalentTests": {
+    "passed": 28,
+    "failed": 0
+  },
+  "actualLiveCheckout": "NOT_RUN",
+  "providerSandboxEndToEnd": "NOT_RUN",
+  "sourceSecretScan": {
+    "filesScanned": 955,
+    "credentialPatternFindingCount": 0,
+    "scope": "staged server source/dist and native source/main binary; not a complete historical log audit",
+    "valuesPrinted": false
+  },
+  "genuinePurchaseRequired": true,
+  "policySource": "https://docs.stripe.com/testing",
+  "remainingBlockers": [
+    "No genuine owner-confirmed product/order; the only inspected shop is a fixture.",
+    "No connected merchant in Stripe or SellerPaymentAccount record; real merchant onboarding/capabilities unverified.",
+    "No exact total, tax/shipping/tip breakdown, buyer identity or owner approval; no charge may be initiated.",
+    "Real Stripe-origin signature/delivery, Wallet/receipt/UI/Pulse reconciliation and actual retry/replay remain unverified without a genuine purchase.",
+    "Refund request code exists, but failed/pending/partial-refund and transfer/fee-reversal reconciliation need dedicated validation before refund readiness can pass.",
+    "Earlier monetization release HOLD remains in place; unrelated billing release-candidate source is not promoted."
+  ]
+}

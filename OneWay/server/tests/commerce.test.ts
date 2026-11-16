@@ -90,3 +90,29 @@ test('remembered replacements are private suggestions and never silently alter a
  const stranger=await service.quote(eve,{items});assert.equal(stranger.suggestedSubstitutions.length,0);
  await db.storefrontProduct.update({where:{id:product},data:{inventory:10}});
 });
+
+
+test('closed production gate blocks new checkout before provider calls or order creation',async()=>{
+ const before={...process.env};let providerCalls=0;
+ try {
+  process.env.STRIPE_ENV='production';process.env.STRIPE_SECRET_KEY='sk_live_NONWORKING_LOCAL_FIXTURE';process.env.ONEWAY_LIVE_CHECKOUT_ENABLED='false';delete process.env.ONEWAY_PAYMENT_CANARY_APPROVAL;
+  const guarded=new CommerceService(db,()=>now,()=>{providerCalls++;throw new Error('provider_must_not_be_called');});
+  const q=await guarded.quote(alice,{items});const count=await db.order.count();
+  await assert.rejects(guarded.checkout(alice,q.id,'public-retry-key'),/live_checkout_not_approved/);
+  assert.equal(await db.order.count(),count);assert.equal(providerCalls,0);
+ }finally {for(const key of ['STRIPE_ENV','STRIPE_SECRET_KEY','ONEWAY_LIVE_CHECKOUT_ENABLED','ONEWAY_PAYMENT_CANARY_APPROVAL']){if(before[key]===undefined)delete process.env[key];else process.env[key]=before[key];}}
+});
+
+
+test('a restarted client reuses the same provider session after losing the first response',async()=>{
+ let objectCount=0,attempts=0,key:string|undefined;let stored:any;
+ const provider:any={checkout:{sessions:{create:async(params:any,options:any)=>{
+  attempts++;if(!stored){objectCount++;key=options.idempotencyKey;stored={id:'cs_lost_response_fixture',url:'https://checkout.stripe.com/c/fixture',...params};throw new Error('simulated_network_response_lost');}
+  assert.equal(options.idempotencyKey,key);return stored;
+ },retrieve:async()=>stored}}};
+ const first=new CommerceService(db,()=>now,()=>provider),q=await first.quote(alice,{items});
+ await assert.rejects(first.checkout(alice,q.id,'first-client-nonce'),/payment_session_unavailable/);
+ const restarted=new CommerceService(db,()=>now,()=>provider),recovered=await restarted.checkout(alice,q.id,'different-client-nonce');
+ assert.equal(objectCount,1);assert.equal(attempts,2);assert.equal((await db.order.findUniqueOrThrow({where:{id:recovered.orderId}})).paymentStatus,'pending_payment');
+ assert.equal(await db.order.count({where:{idempotencyKey:'commerce:'+alice+':'+q.id}}),1);
+});

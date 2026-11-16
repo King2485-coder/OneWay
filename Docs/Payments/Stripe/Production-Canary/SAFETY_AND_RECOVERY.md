@@ -1,0 +1,11 @@
+# Payment canary safeguards
+
+The normal production flag remains false. A canary grant is never accepted from client requests. After a genuine order and explicit owner approval exist, a protected server-only ONEWAY_PAYMENT_CANARY_APPROVAL document must bind ownerUserId, existing orderId, merchantId, integer amountMinor, uppercase currency, Stripe account ID, commerce_checkout entry point, approvedAt, expiresAt (no more than one hour), and approvalReference. No grant is configured in this run. Paid/refunded/cancelled states close the canary; the public flag is never switched on. Intent and legacy Checkout paths cannot use the canary exception. The backend rechecks its actual Stripe account before allowing an approved canary.
+
+The grant does not create a merchant, bypass seller readiness, change tax rules, authorize refunds, or turn a simulated item into a genuine purchase. Do not create placeholder orders or charge the fake Store item. The exact total, merchant, item, quantity, tax/shipping/tip/fees, payment-method ownership and refund plan must be reviewed before requesting charge approval. A refund requires its own explicit approval.
+
+Webhook safety: failed processing returns HTTP 500 so Stripe retries. Only PROCESSED/IGNORED events are acknowledged as duplicates. Failed deliveries are atomically reclaimed; in-flight events return 503; abandoned RECEIVED rows can be reclaimed after five minutes. Required event-reference columns are added without deleting rows. Late failure/progress/unpaid-session deliveries cannot downgrade successful/refunded order and payment state. Raw webhook errors are not logged. Local fixture signatures/replays are not evidence of Stripe-origin delivery.
+
+This deployment preserves the currently deployed revenue/fee policy and does not promote the separate local monetization release candidate. That earlier release HOLD still applies. Marketplace fee recognition, refunds and connected-account transfer/application-fee reversals require reconciliation before release readiness.
+
+No SDK/API version upgrade, new API key, new connected account, charge, refund, subscription or transfer was performed. Existing webhook API version remains 2025-08-27.basil, matching the deployed Stripe SDK family.
