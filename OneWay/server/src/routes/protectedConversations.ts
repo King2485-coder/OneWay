@@ -83,10 +83,15 @@ export function protectedConversationsRouter(deps:{db:PrismaClient,authenticate:
  router.put('/preferences',handle(async(req,res,owner)=>{
   const body=preferenceSchema.safeParse(req.body);if(!body.success){res.status(400).json({error:'invalid_privacy_preferences'});return;}
   const b=body.data,unique=new Set(b.overrides.map(o=>o.kind+':'+canonicalID(o.id)));if(unique.size!==b.overrides.length){res.status(400).json({error:'duplicate_privacy_override'});return;}
-  for(const o of b.overrides)await protectedScopeMembers(db,o.kind,o.id,owner);
+  const previous=await preferences(db,owner),validOverrides:typeof b.overrides=[];
+  for(const o of b.overrides){try{await protectedScopeMembers(db,o.kind,o.id,owner);validOverrides.push(o);}catch(error){
+   // Leaving a conversation must not prevent changing account-level privacy settings.
+   const existed=previous.overrides.some(p=>p.kind===o.kind&&p.id===canonicalID(o.id));
+   if(!(error instanceof PrivacyFailure&&error.status===404&&existed))throw error;
+  }}
   const updated=await db.$transaction(async tx=>{
    const prior=await preferences(tx as PrismaClient,owner);if(prior.version!==b.expectedVersion)throw new PrivacyFailure(409,'privacy_changed_refresh_first');
-   const next=prior.version+1,overrides=b.overrides.map(o=>({...o,id:canonicalID(o.id)}));
+   const next=prior.version+1,overrides=validOverrides.map(o=>({...o,id:canonicalID(o.id)}));
    await tx.$executeRawUnsafe('INSERT INTO "ProtectedConversationPreference" ("userId","settingsJson","overridesJson","version","updatedAtMs") VALUES (?,?,?,?,?) ON CONFLICT("userId") DO UPDATE SET "settingsJson"=excluded."settingsJson","overridesJson"=excluded."overridesJson","version"=excluded."version","updatedAtMs"=excluded."updatedAtMs"',owner,JSON.stringify(b.settings),JSON.stringify(overrides),next,Date.now());
    return {settings:b.settings,overrides,version:next};
   });res.json(updated);

@@ -67,7 +67,9 @@ test('private event when sharing disabled; recipient opt out and blocks respecte
 test('group, shop, private community membership and removed-member access',async()=>{
  for(const [kind,id] of [['conversation',group],['shop',shop],['community',community]])assert.equal((await call(0,scope(kind,id),'POST',event())).status,201);
  assert.equal((await call(2,scope('shop',shop))).status,404);assert.equal((await call(2,scope('community',community))).status,404);
+ await save(1,{},[{kind:'community',id:community,value:'off'}]);
  await db.communityMember.deleteMany({where:{communityId:community,userId:users[1]}});assert.equal((await call(1,scope('community',community))).status,404);
+ const saved=await save(1,{enabled:false},[{kind:'community',id:community,value:'off'}]);assert.equal(saved.status,200);assert.deepEqual(saved.data.overrides,[]);await save(1,{});
 });
 test('seven-day retention and rate limit bound minimal event history',async()=>{
  const expired=randomUUID();await db.$executeRawUnsafe('INSERT INTO "ConversationPrivacyEvent" VALUES (?,?,?,?,?,?,?)',expired,'conversation:'+conversation,users[0],'SCREENSHOT_DETECTED',Date.now()-8*86400000,Date.now()-1,1);
