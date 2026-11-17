@@ -49,14 +49,27 @@ before(async () => {
     });
   }
 
-  const [{ friendsRouter }, { messagesRouter }] = await Promise.all([
+  const [{ friendsRouter }, { messagesRouter }, { walkieRouter, ensureDirectChirpTables }] = await Promise.all([
     import("../src/routes/friends"),
     import("../src/routes/messages"),
+    import("../src/routes/walkie"),
   ]);
+  await ensureDirectChirpTables(db);
   const app = express();
   app.use(express.json());
   app.use("/friends", friendsRouter({ prisma: db }));
   app.use("/messages", messagesRouter());
+  app.use("/chirp", walkieRouter({
+    prisma: db,
+    tokens: {
+      isConfigured: () => true,
+      issue: async () => ({
+        token: "synthetic-test-token",
+        url: "wss://example.invalid",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }),
+    } as any,
+  }));
   app.use((error: any, _request: any, response: any, _next: any) => {
     response.status(500).json({ error: error.message });
   });
@@ -87,7 +100,7 @@ async function call(userIndex: number, path: string, method = "GET", body?: unkn
   return { status: response.status, data: text ? JSON.parse(text) : null };
 }
 
-test("approval creates reciprocal contacts and delivers a direct text to the recipient", async () => {
+test("approval creates reciprocal contacts, enables Chirp acceptance and delivers a direct text", async () => {
   const pending = await call(0, "/friends/request", "POST", { recipientUserId: users[1] });
   assert.equal(pending.status, 201, JSON.stringify(pending.data));
   const friendshipID = pending.data.friendship.id;
@@ -102,6 +115,26 @@ test("approval creates reciprocal contacts and delivers a direct text to the rec
     assert.equal(overview.data.incomingRequests.length, 0);
     assert.equal(overview.data.outgoingRequests.length, 0);
   }
+
+  const chirpRequest = await call(0, "/chirp/direct/request", "POST", {
+    recipientChirpId: "@synthetic_2",
+    clientRequestId: randomUUID(),
+    mode: "private",
+  });
+  assert.equal(chirpRequest.status, 201, JSON.stringify(chirpRequest.data));
+  const chirpRequestID = chirpRequest.data.request.id;
+
+  const incomingChirps = await call(1, "/chirp/direct/incoming");
+  assert.equal(incomingChirps.status, 200);
+  assert.equal(incomingChirps.data.requests[0].id, chirpRequestID);
+
+  const acceptedChirp = await call(1, `/chirp/direct/${chirpRequestID}/accept`, "POST", {});
+  assert.equal(acceptedChirp.status, 200, JSON.stringify(acceptedChirp.data));
+  assert.equal(acceptedChirp.data.request.status, "accepted");
+  assert.deepEqual(
+    acceptedChirp.data.session.participants.map((participant: any) => participant.userId).sort(),
+    [users[0], users[1]].sort(),
+  );
 
   const conversation = await call(0, "/messages/conversations/direct", "POST", { participantUserId: users[1] });
   assert.equal(conversation.status, 200, JSON.stringify(conversation.data));
@@ -126,6 +159,14 @@ test("approval creates reciprocal contacts and delivers a direct text to the rec
 });
 
 test("an unapproved user cannot create or reuse a direct conversation", async () => {
+  const chirp = await call(2, "/chirp/direct/request", "POST", {
+    recipientChirpId: "@synthetic_1",
+    clientRequestId: randomUUID(),
+    mode: "private",
+  });
+  assert.equal(chirp.status, 404);
+  assert.equal(chirp.data.error, "direct_chirp_unavailable");
+
   const create = await call(2, "/messages/conversations/direct", "POST", { participantUserId: users[0] });
   assert.equal(create.status, 403);
   assert.equal(create.data.error, "contact_not_connected");
