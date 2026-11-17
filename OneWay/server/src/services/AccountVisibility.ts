@@ -34,9 +34,10 @@ export async function communicationBlocked(db: PrismaClient, sender: string, rec
 export async function mayCommunicate(db: PrismaClient, sender: string, recipient: string): Promise<boolean> {
   sender = canonical(sender); recipient = canonical(recipient);
   try {
-  const blocked = await db.oneWayContact.findFirst({where: {status: "blocked", OR: [{userId: sender, contactUserId: recipient}, {userId: recipient, contactUserId: sender}]}, select: {id: true}});
-  if (blocked || await communicationBlocked(db, sender, recipient)) return false;
-  if (!await ghostMode(db, sender) && !await ghostMode(db, recipient)) return true;
+  if (await communicationBlocked(db, sender, recipient)) return false;
+  // Direct messaging is an approved-contact capability for every account.
+  // Requiring reciprocal projections keeps an old conversation from becoming
+  // a bypass after either person removes the connection.
   return (await approvedContacts(db, recipient)).includes(sender);
   } catch { return false; } // Privacy storage unavailable: never authorize a new call or message.
 }
